@@ -1,4 +1,4 @@
-import { getConditionsRepository } from './_lib/conditionsRepository';
+import { getConditionsRepository } from './_lib/conditionsRepository.js';
 
 type ApiRequest = {
   method?: string;

@@ -2,9 +2,9 @@ import { Redis } from '@upstash/redis';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { assignUniqueConditions } from '../../src/engine/conditions';
-import type { Condition } from '../../src/engine/types';
-import { makeRng } from '../../src/engine/rng';
+import { assignUniqueConditions } from '../../src/engine/conditions.js';
+import type { Condition } from '../../src/engine/types.js';
+import { makeRng } from '../../src/engine/rng.js';
 
 export type GameRecord = {
   gameId: string;
