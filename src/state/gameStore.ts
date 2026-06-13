@@ -3,7 +3,6 @@ import type {
   Bet,
   Board,
   Card,
-  Condition,
   GamePhase,
   Player,
   RoundRecord,
@@ -13,7 +12,7 @@ import type {
 import { emptyBoard, placeTokens } from '../engine/board';
 import { dealHands, handToCombination } from '../engine/deck';
 import { buildTombolas, drawFour, type TombolaState } from '../engine/tombolas';
-import { offerConditions, evaluateCondition, botPickCondition } from '../engine/conditions';
+import { evaluateCondition } from '../engine/conditions';
 import { resolveRound } from '../engine/betting';
 import { rawScore } from '../engine/scoring';
 import { makeRng, type RNG } from '../engine/rng';
@@ -22,6 +21,7 @@ import {
   botOrderHand,
   botPickRevealedCard,
 } from '../bots/botStrategy';
+import { createGameSession, rememberSession } from '../services/gameSessionApi';
 
 const TOTAL_ROUNDS = 5;
 const STARTING_COINS = 30;
@@ -37,6 +37,8 @@ type DrawState = {
   B: Token[];
 };
 
+type Placement = { row: number; col: number; figure: Token['figure'] };
+
 type GameState = {
   phase: GamePhase;
   rng: RNG;
@@ -49,8 +51,6 @@ type GameState = {
   currentDraw: DrawState | null;
   /** Apuestas de la ronda en curso, recolectadas antes de resolver. */
   pendingBets: Bet[];
-  /** Opciones de condición ofrecidas al humano en CHOOSE_CONDITION. */
-  offeredConditions: Condition[];
   /** Mano del humano sin combinar (en orden de reparto), mientras escoge orden. */
   pendingHand: Card[] | null;
   /** Cartas seleccionadas en orden por el humano (puede ser parcial). */
@@ -64,13 +64,16 @@ type GameState = {
     columns: (number | null)[];
   } | null;
   lastResolution: ReturnType<typeof resolveRound> | null;
+  lastPlacements: Placement[];
+  setupError: string | null;
+  gameId: string | null;
+  moderatorSecret: string | null;
 };
 
 type GameActions = {
-  startGame: (config: SetupConfig) => void;
+  startGame: (config: SetupConfig) => Promise<void>;
   setHumanCombinationOrder: (cards: Card[]) => void;
   confirmCombination: () => void;
-  pickCondition: (conditionId: string) => void;
   revealCard: (cardId: string) => void;
   startRound: () => void;
   updateDraftBet: (patch: Partial<NonNullable<GameState['draftBet']>>) => void;
@@ -93,69 +96,88 @@ const initialState: GameState = {
   tombolas: buildTombolas(),
   currentDraw: null,
   pendingBets: [],
-  offeredConditions: [],
   pendingHand: null,
   selectedOrder: [],
   history: [],
   finalScores: null,
   draftBet: null,
   lastResolution: null,
+  lastPlacements: [],
+  setupError: null,
+  gameId: null,
+  moderatorSecret: null,
 };
 
 export const useGameStore = create<Store>((set, get) => ({
   ...initialState,
 
-  startGame(config) {
-    const seed = config.seed ?? Date.now();
-    const rng = makeRng(seed);
-    const numPlayers = 1 + config.numBots;
-    const { hands } = dealHands(numPlayers, rng);
+  async startGame(config) {
+    try {
+      set({ setupError: null });
+      const seed = config.seed ?? Date.now();
+      const rng = makeRng(seed);
+      const numPlayers = 1 + config.numBots;
+      const { hands } = dealHands(numPlayers, rng);
 
-    const humanId = 'human';
-    const players: Player[] = [];
+      const humanId = 'human';
+      const participantIds = [
+        humanId,
+        ...Array.from({ length: config.numBots }, (_, i) => `bot-${i + 1}`),
+      ];
+      const session = await createGameSession(participantIds, seed);
+      const players: Player[] = [];
 
-    // Humano (asignamos placeholder de combination/revealed/condition, se completarán).
-    players.push({
-      id: humanId,
-      name: config.humanName || 'Tú',
-      isBot: false,
-      hand: hands[0],
-      combination: handToCombination(hands[0]), // placeholder, lo confirma el humano
-      revealedCardId: hands[0][0].id,
-      condition: offerConditions(rng, 1)[0], // placeholder, lo elegirá
-      coins: STARTING_COINS,
-      scoreHistory: [],
-    });
-
-    // Bots
-    for (let i = 0; i < config.numBots; i++) {
-      const botHand = botOrderHand(hands[1 + i], rng);
-      const offered = offerConditions(rng, 3);
-      const condition = botPickCondition(rng, offered);
-      const revealedCardId = botPickRevealedCard(botHand, rng);
       players.push({
-        id: `bot-${i + 1}`,
-        name: `Bot ${i + 1}`,
-        isBot: true,
-        hand: botHand,
-        combination: handToCombination(botHand),
-        revealedCardId,
-        condition,
+        id: humanId,
+        name: config.humanName || 'Tú',
+        isBot: false,
+        hand: hands[0],
+        combination: handToCombination(hands[0]), // placeholder, lo confirma el humano
+        revealedCardId: hands[0][0].id,
+        condition: session.assignments[humanId],
         coins: STARTING_COINS,
         scoreHistory: [],
       });
-    }
 
-    set({
-      ...initialState,
-      phase: 'DEAL_CARDS',
-      rng,
-      seed,
-      players,
-      humanId,
-      pendingHand: hands[0],
-      selectedOrder: [],
-    });
+      // Bots
+      for (let i = 0; i < config.numBots; i++) {
+        const botId = `bot-${i + 1}`;
+        const botHand = botOrderHand(hands[1 + i], rng);
+        const revealedCardId = botPickRevealedCard(botHand, rng);
+        players.push({
+          id: botId,
+          name: `Bot ${i + 1}`,
+          isBot: true,
+          hand: botHand,
+          combination: handToCombination(botHand),
+          revealedCardId,
+          condition: session.assignments[botId],
+          coins: STARTING_COINS,
+          scoreHistory: [],
+        });
+      }
+      rememberSession(session, humanId);
+
+      set({
+        ...initialState,
+        phase: 'DEAL_CARDS',
+        rng,
+        seed,
+        players,
+        humanId,
+        pendingHand: hands[0],
+        selectedOrder: [],
+        gameId: session.gameId,
+        moderatorSecret: session.moderatorSecret,
+      });
+    } catch (error) {
+      set({
+        setupError:
+          error instanceof Error
+            ? error.message
+            : 'No fue posible asignar una condición única. Revisa la configuración de la partida.',
+      });
+    }
   },
 
   setHumanCombinationOrder(cards) {
@@ -163,30 +185,18 @@ export const useGameStore = create<Store>((set, get) => ({
   },
 
   confirmCombination() {
-    const { selectedOrder, players, humanId, rng } = get();
+    const { selectedOrder, players, humanId } = get();
     if (selectedOrder.length !== 3) return;
     const updated = players.map((p) =>
       p.id === humanId
         ? { ...p, hand: selectedOrder, combination: handToCombination(selectedOrder) }
         : p,
     );
-    const offeredConditions = offerConditions(rng, 3);
     set({
       players: updated,
-      offeredConditions,
-      phase: 'CHOOSE_CONDITION',
+      phase: 'REVEAL_CARD',
       pendingHand: null,
     });
-  },
-
-  pickCondition(conditionId) {
-    const { offeredConditions, players, humanId } = get();
-    const c = offeredConditions.find((x) => x.id === conditionId);
-    if (!c) return;
-    const updated = players.map((p) =>
-      p.id === humanId ? { ...p, condition: c } : p,
-    );
-    set({ players: updated, offeredConditions: [], phase: 'REVEAL_CARD' });
   },
 
   revealCard(cardId) {
@@ -208,6 +218,7 @@ export const useGameStore = create<Store>((set, get) => ({
       currentDraw: { A: a.drawn, B: b.drawn },
       pendingBets: [],
       draftBet: { tombola: 'A', amount: 3, columns: [null, null, null, null] },
+      lastPlacements: [],
       phase: 'BETTING',
       round: round || 1,
     });
@@ -260,6 +271,7 @@ export const useGameStore = create<Store>((set, get) => ({
     let voidedReason: RoundRecord['voidedReason'];
     let refunded = false;
     let finalPlayers = playersAfterBet;
+    let lastPlacements: Placement[] = [];
 
     if (resolution.kind === 'winner') {
       winnerTombola = resolution.winnerTombola;
@@ -271,9 +283,11 @@ export const useGameStore = create<Store>((set, get) => ({
         nextBoard,
         winningTokens.map((t) => t.figure),
         winnerBet.columns,
+        winningTokens.map((t) => t.figure),
       );
       if (placeResult.ok) {
         nextBoard = placeResult.board;
+        lastPlacements = placeResult.placements;
       } else {
         // Colocación inválida (p.ej. bot eligió columnas que violan contacto):
         // las fichas se descartan; el bot pierde la apuesta igualmente.
@@ -309,6 +323,7 @@ export const useGameStore = create<Store>((set, get) => ({
       pendingBets: allBets,
       history: [...get().history, record],
       lastResolution: resolution,
+      lastPlacements,
       phase: 'ROUND_END',
     });
 

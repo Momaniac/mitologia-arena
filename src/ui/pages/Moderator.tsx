@@ -61,10 +61,7 @@ export function Moderator({ onClose }: { onClose: () => void }) {
                   ))}
                 </div>
                 <div className="text-xs text-white/60 mb-1">Condición</div>
-                <div className="text-sm mb-2">
-                  {FIGURE_LABEL[p.condition.left]} {p.condition.op}{' '}
-                  {FIGURE_LABEL[p.condition.right]}
-                </div>
+                <div className="text-sm mb-2">{p.condition.label}</div>
                 <div className="text-xs text-white/60 mb-1">Carta revelada</div>
                 <div className="text-sm">
                   {FIGURE_LABEL[

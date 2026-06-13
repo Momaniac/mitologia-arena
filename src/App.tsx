@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Setup } from './ui/pages/Setup';
 import { Game } from './ui/pages/Game';
 import { Tutorial } from './ui/pages/Tutorial';
@@ -9,14 +9,10 @@ const TUTORIAL_KEY = 'mitologia.tutorialSeen';
 
 function App() {
   const phase = useGameStore((s) => s.phase);
-  const [showTutorial, setShowTutorial] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(
+    () => !localStorage.getItem(TUTORIAL_KEY),
+  );
   const [showModerator, setShowModerator] = useState(false);
-
-  useEffect(() => {
-    if (phase === 'SETUP' && !localStorage.getItem(TUTORIAL_KEY)) {
-      setShowTutorial(true);
-    }
-  }, [phase]);
 
   if (showTutorial) {
     return (

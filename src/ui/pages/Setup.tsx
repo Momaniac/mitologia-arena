@@ -3,8 +3,16 @@ import { useGameStore } from '../../state/gameStore';
 
 export function Setup() {
   const startGame = useGameStore((s) => s.startGame);
+  const setupError = useGameStore((s) => s.setupError);
   const [name, setName] = useState('Jugador 1');
   const [numBots, setNumBots] = useState(3);
+  const [starting, setStarting] = useState(false);
+
+  async function handleStart() {
+    setStarting(true);
+    await startGame({ humanName: name, numBots });
+    setStarting(false);
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6">
@@ -46,11 +54,18 @@ export function Setup() {
 
         <button
           type="button"
-          onClick={() => startGame({ humanName: name, numBots })}
-          className="mt-6 w-full bg-accent hover:bg-accent-dark text-ink font-bold py-3 rounded-lg transition shadow-md"
+          onClick={handleStart}
+          disabled={starting}
+          className="mt-6 w-full bg-accent disabled:bg-ink/20 disabled:cursor-not-allowed hover:bg-accent-dark text-ink font-bold py-3 rounded-lg transition shadow-md"
         >
-          Comenzar partida
+          {starting ? 'Preparando partida…' : 'Comenzar partida'}
         </button>
+
+        {setupError && (
+          <p className="mt-3 rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-ink">
+            {setupError}
+          </p>
+        )}
 
         <p className="text-xs text-ink/50 mt-4">
           v1 demo · Single-player con bots · Funciona offline

@@ -31,7 +31,7 @@ export function Tutorial({ onFinish }: { onFinish: () => void }) {
         </div>
 
         <h2 className="text-2xl font-extrabold text-ink mb-3">{step.title}</h2>
-        <p className="text-ink/80 leading-relaxed mb-6">{step.body}</p>
+        <p className="text-ink/80 leading-relaxed mb-6 whitespace-pre-line">{step.body}</p>
 
         {step.highlight && (
           <div className="flex gap-3 justify-center mb-6">

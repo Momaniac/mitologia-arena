@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { FIGURE_LABEL, type Card } from '../../engine/types';
+import { type Card } from '../../engine/types';
+import { placeTokens } from '../../engine/board';
 import { useGameStore } from '../../state/gameStore';
 import { Board } from '../components/Board';
 import { CardHand } from '../components/CardHand';
@@ -15,6 +16,7 @@ export function Game({ onOpenModerator }: { onOpenModerator: () => void }) {
   const humanId = useGameStore((s) => s.humanId);
   const board = useGameStore((s) => s.board);
   const round = useGameStore((s) => s.round);
+  const lastPlacements = useGameStore((s) => s.lastPlacements);
 
   const human = players.find((p) => p.id === humanId);
   if (!human) return null;
@@ -40,7 +42,6 @@ export function Game({ onOpenModerator }: { onOpenModerator: () => void }) {
       <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-6">
         <section className="space-y-4">
           {phase === 'DEAL_CARDS' && <DealCardsView />}
-          {phase === 'CHOOSE_CONDITION' && <ChooseConditionView />}
           {phase === 'REVEAL_CARD' && <RevealCardView />}
           {(phase === 'BETTING' ||
             phase === 'POSITION_SELECT' ||
@@ -52,7 +53,7 @@ export function Game({ onOpenModerator }: { onOpenModerator: () => void }) {
           <div className="p-4 rounded-xl bg-white border border-ink/10">
             <h3 className="font-bold text-ink mb-2">Tablero</h3>
             <div className="flex justify-center">
-              <Board board={board} />
+              <Board board={board} animatedPlacements={lastPlacements} />
             </div>
           </div>
           <div className="p-4 rounded-xl bg-white border border-ink/10">
@@ -69,8 +70,6 @@ function phaseLabel(p: string): string {
   switch (p) {
     case 'DEAL_CARDS':
       return 'Definiendo combinación';
-    case 'CHOOSE_CONDITION':
-      return 'Eligiendo condición secreta';
     case 'REVEAL_CARD':
       return 'Revelando carta pública';
     case 'BETTING':
@@ -118,39 +117,6 @@ function DealCardsView() {
   );
 }
 
-function ChooseConditionView() {
-  const offered = useGameStore((s) => s.offeredConditions);
-  const pick = useGameStore((s) => s.pickCondition);
-  return (
-    <div className="p-6 rounded-xl bg-white border border-ink/10">
-      <h2 className="text-xl font-bold text-ink mb-1">Elige tu condición secreta</h2>
-      <p className="text-sm text-ink/70 mb-4">
-        Si esta condición se cumple sobre el tablero final, tu puntaje se
-        multiplica por 2.
-      </p>
-      <div className="grid gap-3">
-        {offered.map((c) => (
-          <button
-            key={c.id}
-            type="button"
-            onClick={() => pick(c.id)}
-            className="p-4 rounded-lg border-2 border-ink/10 hover:border-accent bg-base text-left"
-          >
-            <div className="flex items-center gap-3">
-              <TokenIcon figure={c.left} size="sm" />
-              <span className="text-xl font-bold text-ink">{c.op}</span>
-              <TokenIcon figure={c.right} size="sm" />
-              <span className="ml-auto text-sm text-ink/60">
-                {FIGURE_LABEL[c.left]} {c.op} {FIGURE_LABEL[c.right]}
-              </span>
-            </div>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function RevealCardView() {
   const human = useGameStore((s) =>
     s.players.find((p) => p.id === s.humanId),
@@ -165,6 +131,15 @@ function RevealCardView() {
         Elige cuál de tus 3 cartas mostrarás públicamente durante toda la
         partida. Las otras dos seguirán siendo secretas.
       </p>
+      <div className="mb-4 rounded-lg border border-link/20 bg-link/5 p-3">
+        <div className="text-xs font-semibold uppercase text-link">
+          Tu condición secreta
+        </div>
+        <div className="mt-1 text-sm font-bold text-ink">{human.condition.label}</div>
+        <p className="mt-1 text-xs text-ink/60">
+          Ya fue asignada por el sistema y no puede cambiarse durante la partida.
+        </p>
+      </div>
       <div className="flex gap-3 mb-4">
         {human.hand.map((c) => (
           <button
@@ -201,15 +176,11 @@ function RoundView({ phase }: { phase: string }) {
   const resolution = useGameStore((s) => s.lastResolution);
   const proceed = useGameStore((s) => s.proceedToResults);
   const round = useGameStore((s) => s.round);
-  const players = useGameStore((s) => s.players);
+  const board = useGameStore((s) => s.board);
 
   if (!drawn) return <p className="text-ink/70">Preparando ronda…</p>;
 
   if (phase === 'ROUND_END' && resolution) {
-    const winner =
-      resolution.kind === 'winner'
-        ? players.find((p) => p.id === resolution.winnerPlayerId)
-        : null;
     return (
       <div className="p-6 rounded-xl bg-white border border-ink/10">
         <h2 className="text-xl font-bold text-ink mb-2">Resolución ronda {round}</h2>
@@ -223,8 +194,7 @@ function RoundView({ phase }: { phase: string }) {
               Gana la Tómbola {resolution.winnerTombola} (menor total).
             </p>
             <p className="text-sm text-ink/80 mt-1">
-              Ronda ganada por: <strong>{winner?.name}</strong>. Sus fichas se
-              colocaron en el tablero.
+              Las fichas válidas de esta ronda se colocaron en el tablero.
             </p>
           </div>
         ) : (
@@ -247,6 +217,20 @@ function RoundView({ phase }: { phase: string }) {
       </div>
     );
   }
+
+  const selectedTokens = draft && drawn ? drawn[draft.tombola] : [];
+  const selectedFigures = selectedTokens.map((token) => token.figure);
+  const selectedColumns = draft?.columns ?? [];
+  const columnsReady = selectedColumns.every((c) => c !== null);
+  const placementResult =
+    draft && columnsReady
+      ? placeTokens(
+          board,
+          selectedFigures,
+          selectedColumns as [number, number, number, number],
+          selectedFigures,
+        )
+      : null;
 
   return (
     <div className="space-y-4">
@@ -273,10 +257,15 @@ function RoundView({ phase }: { phase: string }) {
       </div>
       <BetPanel />
       <ColumnPicker />
+      {placementResult && !placementResult.ok && (
+        <div className="rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm font-semibold text-ink">
+          {placementResult.reason || 'Este acomodo no es válido. Ajusta la posición de tus fichas.'}
+        </div>
+      )}
       <button
         type="button"
         onClick={submit}
-        disabled={!draft || draft.columns.some((c) => c === null)}
+        disabled={!draft || !columnsReady || placementResult?.ok === false}
         className="w-full bg-accent disabled:bg-ink/20 disabled:cursor-not-allowed hover:bg-accent-dark text-ink font-bold py-3 rounded-lg shadow"
       >
         Confirmar apuesta

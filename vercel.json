@@ -1,5 +1,6 @@
 {
+  "installCommand": "npm install",
+  "devCommand": "npm run dev -- --host 127.0.0.1 --port $PORT",
   "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "outputDirectory": "dist"
 }

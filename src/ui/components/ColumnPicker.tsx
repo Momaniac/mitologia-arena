@@ -13,8 +13,8 @@ export function ColumnPicker() {
       <h3 className="font-bold text-ink mb-2">Posición de colocación</h3>
       <p className="text-xs text-ink/60 mb-3">
         Si ganas, estas 4 fichas (en este orden) caerán por gravedad sobre las
-        columnas elegidas. Deben tocar al menos una ficha previa (excepto en la
-        ronda 1).
+        columnas elegidas. Deben formar un gusanito y tocar al menos una ficha
+        previa desde la ronda 2.
       </p>
       <div className="space-y-2">
         {tokens.map((tk, i) => (

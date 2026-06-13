@@ -1,7 +1,7 @@
 import { type RNG, randInt } from '../engine/rng';
 import { MAX_BET, MIN_BET } from '../engine/betting';
-import { availableColumns } from '../engine/board';
-import type { Board, Player, Token, TombolaId, Bet } from '../engine/types';
+import { availableColumns, placeTokens } from '../engine/board';
+import type { Board, Figure, Player, Token, TombolaId, Bet } from '../engine/types';
 
 /**
  * Estrategia del bot para apostar:
@@ -32,17 +32,37 @@ export function botDecideBet(
   const noise = randInt(rng, 3) - 1;
   const amount = Math.min(maxAffordable, Math.max(MIN_BET, base + noise));
 
-  const columns = pickBotColumns(board, rng);
+  const drawn = tombola === 'A' ? drawnA : drawnB;
+  const columns = pickBotColumns(
+    board,
+    drawn.map((token) => token.figure),
+    rng,
+  );
   return { playerId: bot.id, tombola, amount, columns };
 }
 
 /**
  * Elige 4 columnas válidas para que el bot pueda colocar las 4 fichas si gana.
- * Garantiza que cada columna elegida tenga al menos un espacio libre considerando
- * las fichas previas (pero NO valida contacto — el motor lo hará al colocar; si
- * falla, el bot pierde la oportunidad de colocar pero ya pagó su apuesta).
+ * Intenta elegir columnas que pasen gravedad, gusanito y contacto.
  */
-export function pickBotColumns(board: Board, rng: RNG): [number, number, number, number] {
+export function pickBotColumns(
+  board: Board,
+  figures: readonly Figure[],
+  rng: RNG,
+): [number, number, number, number] {
+  const valid: [number, number, number, number][] = [];
+  for (let a = 0; a < 5; a++) {
+    for (let b = 0; b < 5; b++) {
+      for (let c = 0; c < 5; c++) {
+        for (let d = 0; d < 5; d++) {
+          const columns: [number, number, number, number] = [a, b, c, d];
+          if (placeTokens(board, figures, columns, figures).ok) valid.push(columns);
+        }
+      }
+    }
+  }
+  if (valid.length > 0) return valid[randInt(rng, valid.length)];
+
   // Trabajamos sobre un mapa de "ocupación virtual": cada vez que elegimos una
   // columna, simulamos su llenado para no repetir una columna ya llena.
   const heights = new Array(5).fill(0).map((_, c) => {

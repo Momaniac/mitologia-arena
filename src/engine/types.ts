@@ -30,13 +30,11 @@ export type Token = {
 
 export type Combination = [Figure, Figure, Figure];
 
-export type ComparisonOp = '>' | '>=';
-
 export type Condition = {
   id: string;
-  left: Figure;
-  op: ComparisonOp;
-  right: Figure;
+  label: string;
+  left: Figure[];
+  right: Figure[];
 };
 
 export type TombolaId = 'A' | 'B';
@@ -84,7 +82,6 @@ export type RoundRecord = {
 export type GamePhase =
   | 'SETUP'
   | 'DEAL_CARDS'
-  | 'CHOOSE_CONDITION'
   | 'REVEAL_CARD'
   | 'ROUND_START'
   | 'BETTING'
