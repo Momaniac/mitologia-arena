@@ -21,7 +21,7 @@ import {
   botOrderHand,
   botPickRevealedCard,
 } from '../bots/botStrategy';
-import { createGameSession, rememberSession } from '../services/gameSessionApi';
+import { createGameSession, rememberSession } from '../services/gameSession';
 
 const TOTAL_ROUNDS = 5;
 const STARTING_COINS = 30;
