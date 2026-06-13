@@ -1,5 +1,5 @@
 import { type Board, type Condition, type Figure } from './types';
-import { type RNG, shuffle } from './rng';
+import { type RNG, shuffle } from './rng.js';
 
 export const SECRET_CONDITIONS: Condition[] = [
   { id: 'dragon_gt_hydra', label: 'Dragón > Hydra', left: ['dragon'], right: ['hydra'] },
