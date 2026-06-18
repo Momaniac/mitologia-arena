@@ -81,9 +81,9 @@ export function Moderator({ onClose }: { onClose: () => void }) {
             <p className="text-white/60 text-sm">Aún no hay rondas jugadas.</p>
           )}
           <div className="space-y-3">
-            {history.map((r) => (
+            {history.map((r, index) => (
               <div
-                key={r.round}
+                key={`${r.round}-${index}`}
                 className="p-3 rounded-lg bg-white/5 border border-white/10"
               >
                 <div className="flex items-center justify-between mb-2">
