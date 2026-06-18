@@ -27,16 +27,16 @@ export function isBoardEmpty(board: Board): boolean {
   return true;
 }
 
-/** Adyacencia ortogonal (arriba/abajo/izquierda/derecha). */
-const NEIGHBORS_4 = [
+/** Adyacencia por cara: arriba/abajo/izquierda/derecha. Diagonal no cuenta. */
+const NEIGHBORS_ORTHOGONAL = [
   [-1, 0],
   [1, 0],
   [0, -1],
   [0, 1],
 ] as const;
 
-function touchesExisting(board: Board, row: number, col: number): boolean {
-  for (const [dr, dc] of NEIGHBORS_4) {
+function touchesExistingByFace(board: Board, row: number, col: number): boolean {
+  for (const [dr, dc] of NEIGHBORS_ORTHOGONAL) {
     const r = row + dr;
     const c = col + dc;
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) continue;
@@ -66,33 +66,31 @@ export function hasFloatingTokens(board: Board): boolean {
   return false;
 }
 
-function placementsAreConnected(
+/**
+ * Verifica que las fichas colocadas forman un "gusanito" válido:
+ * cada ficha nueva debe tocar por una cara a la ficha inmediatamente anterior.
+ * El contacto diagonal no cuenta para esta regla.
+ */
+function placementsFollowWorm(
   placements: readonly { row: number; col: number }[],
 ): boolean {
-  if (placements.length === 0) return false;
-  const keys = new Set(placements.map((p) => `${p.row},${p.col}`));
-  const visited = new Set<string>();
-  const stack = [placements[0]];
-
-  while (stack.length > 0) {
-    const current = stack.pop()!;
-    const key = `${current.row},${current.col}`;
-    if (visited.has(key)) continue;
-    visited.add(key);
-    for (const [dr, dc] of NEIGHBORS_4) {
-      const next = { row: current.row + dr, col: current.col + dc };
-      if (keys.has(`${next.row},${next.col}`)) stack.push(next);
-    }
+  if (placements.length !== 4) return false;
+  for (let i = 1; i < placements.length; i++) {
+    const previous = placements[i - 1];
+    const current = placements[i];
+    const distance =
+      Math.abs(current.row - previous.row) + Math.abs(current.col - previous.col);
+    if (distance !== 1) return false;
   }
 
-  return visited.size === placements.length;
+  return true;
 }
 
 function touchesPreviousBoard(
   board: Board,
   placements: readonly { row: number; col: number }[],
 ): boolean {
-  return placements.some((p) => touchesExisting(board, p.row, p.col));
+  return placements.some((p) => touchesExistingByFace(board, p.row, p.col));
 }
 
 export type PlaceResult =
@@ -102,8 +100,9 @@ export type PlaceResult =
 /**
  * Coloca 4 fichas en el board aplicando gravedad y reglas de contacto.
  * - Cada ficha cae a la fila libre más baja de su columna.
- * - Las 4 fichas finales deben formar un grupo ortogonal conectado.
- * - Si el board NO está vacío, al menos una ficha nueva debe tocar una ficha previa.
+ * - Cada ficha nueva debe tocar por una cara a la ficha inmediatamente anterior.
+ * - Si el board NO está vacío, al menos una ficha nueva debe tocar por una cara
+ *   una ficha previa.
  * - Si una columna está llena cuando se intenta colocar, falla.
  */
 export function placeTokens(
@@ -144,16 +143,16 @@ export function placeTokens(
       reason: 'Las fichas deben caer por gravedad. No pueden quedar espacios vacíos debajo.',
     };
   }
-  if (!placementsAreConnected(placements)) {
+  if (!placementsFollowWorm(placements)) {
     return {
       ok: false,
-      reason: 'Las 4 fichas deben mantenerse conectadas como un gusanito.',
+      reason: 'Cada ficha nueva debe tocar por una cara a la ficha anterior. El contacto diagonal no cuenta como gusanito.',
     };
   }
   if (!wasEmpty && !touchesPreviousBoard(board, placements)) {
     return {
       ok: false,
-      reason: 'A partir de la segunda ronda, tu acomodo debe tocar al menos una ficha ya colocada.',
+      reason: 'A partir de la segunda ronda, tu acomodo debe tocar por una cara al menos una ficha ya colocada.',
     };
   }
 

@@ -77,7 +77,7 @@ type GameActions = {
   revealCard: (cardId: string) => void;
   startRound: () => void;
   updateDraftBet: (patch: Partial<NonNullable<GameState['draftBet']>>) => void;
-  setDraftColumn: (index: number, col: number) => void;
+  setDraftColumn: (index: number, col: number | null) => void;
   submitHumanBet: () => void;
   proceedToResults: () => void;
   resetGame: () => void;
@@ -230,7 +230,7 @@ export const useGameStore = create<Store>((set, get) => ({
     set({ draftBet: { ...draft, ...patch } });
   },
 
-  setDraftColumn(index, col) {
+  setDraftColumn(index: number, col: number | null) {
     const draft = get().draftBet;
     if (!draft) return;
     const cols = draft.columns.slice();
@@ -272,6 +272,7 @@ export const useGameStore = create<Store>((set, get) => ({
     let refunded = false;
     let finalPlayers = playersAfterBet;
     let lastPlacements: Placement[] = [];
+    let restoredTombolas: TombolaState | null = null;
 
     if (resolution.kind === 'winner') {
       winnerTombola = resolution.winnerTombola;
@@ -302,6 +303,11 @@ export const useGameStore = create<Store>((set, get) => ({
         const b = allBets.find((x) => x.playerId === p.id);
         return b ? { ...p, coins: p.coins + b.amount } : p;
       });
+      // Devolver fichas a las tómbolas — las tómbolas permanecen intactas para repetir ronda
+      restoredTombolas = {
+        A: [...get().tombolas.A, ...currentDraw.A],
+        B: [...get().tombolas.B, ...currentDraw.B],
+      };
     }
 
     const record: RoundRecord = {
@@ -325,6 +331,8 @@ export const useGameStore = create<Store>((set, get) => ({
       lastResolution: resolution,
       lastPlacements,
       phase: 'ROUND_END',
+      // Si hubo empate, restaurar tómbolas para que la ronda se repita
+      ...(restoredTombolas ? { tombolas: restoredTombolas } : {}),
     });
 
     // Avanzar tras un breve delay sería ideal en UI; por ahora la UI
@@ -335,7 +343,17 @@ export const useGameStore = create<Store>((set, get) => ({
   },
 
   proceedToResults() {
-    const { round, players, board } = get();
+    const { round, players, board, lastResolution } = get();
+    const wasTie = lastResolution && lastResolution.kind === 'voided';
+
+    if (wasTie) {
+      // Empate: repetir la misma ronda (no avanzar contador)
+      // Las tómbolas ya fueron restauradas en submitHumanBet
+      set({ currentDraw: null, draftBet: null });
+      get().startRound();
+      return;
+    }
+
     if (round < TOTAL_ROUNDS) {
       set({ round: round + 1, currentDraw: null, draftBet: null });
       get().startRound();

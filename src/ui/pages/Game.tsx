@@ -181,6 +181,7 @@ function RoundView({ phase }: { phase: string }) {
   if (!drawn) return <p className="text-ink/70">Preparando ronda…</p>;
 
   if (phase === 'ROUND_END' && resolution) {
+    const isTie = resolution.kind === 'voided';
     return (
       <div className="p-6 rounded-xl bg-white border border-ink/10">
         <h2 className="text-xl font-bold text-ink mb-2">Resolución ronda {round}</h2>
@@ -198,12 +199,12 @@ function RoundView({ phase }: { phase: string }) {
             </p>
           </div>
         ) : (
-          <div className="p-4 rounded-lg bg-danger/10 border border-danger/30 mb-4">
-            <p className="font-bold text-ink">Ronda anulada.</p>
+          <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/30 mb-4">
+            <p className="font-bold text-ink">¡Empate! La ronda se repite.</p>
             <p className="text-sm text-ink/80 mt-1">
               {resolution.reason === 'tombola-tie'
-                ? 'Empate entre tómbolas — todas las monedas se devuelven.'
-                : 'Empate entre las apuestas máximas — todas las monedas se devuelven.'}
+                ? 'Empate entre tómbolas: se devuelven las monedas, las fichas regresan a sus tómbolas y se repite la misma ronda hasta desempatar.'
+                : 'Empate entre las apuestas máximas: se devuelven las monedas, las fichas regresan a sus tómbolas y se repite la misma ronda hasta desempatar.'}
             </p>
           </div>
         )}
@@ -212,7 +213,11 @@ function RoundView({ phase }: { phase: string }) {
           onClick={proceed}
           className="bg-accent hover:bg-accent-dark text-ink font-bold px-6 py-2 rounded-lg"
         >
-          {round >= 5 ? 'Ver resultados finales' : 'Siguiente ronda →'}
+          {isTie
+            ? '🔄 Repetir ronda'
+            : round >= 5
+              ? 'Ver resultados finales'
+              : 'Siguiente ronda →'}
         </button>
       </div>
     );

@@ -39,7 +39,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     title: 'Las fichas y el tablero',
-    body: 'Después de elegir tómbola y definir cuántas monedas pondrás, deberás indicar cómo quieres colocar las 4 fichas en el tablero.\n\nLas fichas caen por gravedad, como en Conecta 4. Esto significa que no puedes colocarlas flotando en cualquier espacio: cada ficha cae hasta llegar al fondo del tablero o hasta apoyarse sobre otra ficha.\n\nEl acomodo debe cumplir tres reglas:\n1. Las 4 fichas deben formar un grupo conectado, como un “gusanito”.\n2. A partir de la segunda ronda, el grupo debe tocar al menos una ficha ya colocada en el tablero.\n3. No puede haber fichas flotantes.\n\nSi ganas la ronda, el tablero usará el acomodo válido que propusiste.',
+    body: 'Después de elegir tómbola y definir cuántas monedas pondrás, deberás indicar cómo quieres colocar las 4 fichas en el tablero.\n\nLas fichas caen por gravedad, como en Conecta 4. Esto significa que no puedes colocarlas flotando en cualquier espacio: cada ficha cae hasta llegar al fondo del tablero o hasta apoyarse sobre otra ficha.\n\nEl acomodo debe cumplir tres reglas:\n1. Las 4 fichas deben formar un grupo conectado, como un “gusanito”: cada ficha nueva debe tocar por una cara a la ficha anterior, sin diagonales.\n2. A partir de la segunda ronda, el grupo debe tocar por una cara al menos una ficha ya colocada en el tablero.\n3. No puede haber fichas flotantes.\n\nPara evitar errores, acomoda pensando de abajo hacia arriba cuando formes torres o escalones.\n\nSi ganas la ronda, el tablero usará el acomodo válido que propusiste.',
   },
   {
     title: 'Puntaje final',

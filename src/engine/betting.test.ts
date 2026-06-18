@@ -35,7 +35,7 @@ describe('resolveRound', () => {
     }
   });
 
-  it('empate de totales entre tómbolas → ronda anulada', () => {
+  it('empate de totales entre tómbolas → devolución y repetición', () => {
     const bets: Bet[] = [bet('p1', 'A', 5), bet('p2', 'B', 5)];
     const r = resolveRound(bets);
     expect(r.kind).toBe('voided');
@@ -44,7 +44,7 @@ describe('resolveRound', () => {
     }
   });
 
-  it('empate entre apuestas máximas dentro de la ganadora → anulada', () => {
+  it('empate entre apuestas máximas dentro de la ganadora → devolución y repetición', () => {
     const bets: Bet[] = [
       bet('p1', 'A', 10),
       bet('p2', 'B', 4),

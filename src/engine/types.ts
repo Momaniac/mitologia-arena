@@ -70,9 +70,9 @@ export type RoundRecord = {
   tombolaA: Token[];
   tombolaB: Token[];
   bets: Bet[];
-  /** null si la ronda fue anulada. */
+  /** null si la ronda terminó en empate y debe repetirse. */
   winnerTombola: TombolaId | null;
-  /** null si la ronda fue anulada (empate). */
+  /** null si la ronda terminó en empate y debe repetirse. */
   winnerPlayerId: string | null;
   /** Razón por la que la ronda no produjo ganador. */
   voidedReason?: 'tombola-tie' | 'player-tie';

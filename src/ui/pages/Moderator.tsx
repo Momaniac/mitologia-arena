@@ -97,7 +97,7 @@ export function Moderator({ onClose }: { onClose: () => void }) {
                   >
                     {r.winnerPlayerId
                       ? `Ganador: Tómbola ${r.winnerTombola}`
-                      : `Anulada (${r.voidedReason})`}
+                      : `Empate: se repite (${r.voidedReason})`}
                   </span>
                 </div>
                 <table className="w-full text-sm">

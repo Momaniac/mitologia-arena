@@ -16,12 +16,12 @@ export type RoundResolution =
 /**
  * Resuelve una ronda según las reglas del documento:
  * - Gana la tómbola con MENOR cantidad total apostada.
- * - Empate de totales → ronda anulada (devolución).
+ * - Empate de totales → devolución y repetición de la misma ronda.
  * - Dentro de la tómbola ganadora, gana el jugador con MAYOR apuesta individual.
- * - Empate entre las apuestas máximas → ronda anulada (devolución).
+ * - Empate entre las apuestas máximas → devolución y repetición de la misma ronda.
  *
  * Si una tómbola no recibió ninguna apuesta, su total = 0 y "gana" (es la menor).
- * Si ambas son 0 (nadie apostó), se considera empate-tombola → anulada.
+ * Si ambas son 0 (nadie apostó), se considera empate-tombola → se repite.
  */
 export function resolveRound(bets: readonly Bet[]): RoundResolution {
   const totals = { A: 0, B: 0 };
