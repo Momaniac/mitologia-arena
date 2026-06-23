@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { type Card } from '../../engine/types';
+import { type Card, type Player } from '../../engine/types';
 import { placeTokens } from '../../engine/board';
 import { useGameStore } from '../../state/gameStore';
 import { Board } from '../components/Board';
@@ -17,12 +17,19 @@ export function Game({ onOpenModerator }: { onOpenModerator: () => void }) {
   const board = useGameStore((s) => s.board);
   const round = useGameStore((s) => s.round);
   const lastPlacements = useGameStore((s) => s.lastPlacements);
+  const [showMyCards, setShowMyCards] = useState(false);
 
   const human = players.find((p) => p.id === humanId);
   if (!human) return null;
 
+  // Las cartas solo existen una vez definida la combinación.
+  const canViewCards = phase !== 'DEAL_CARDS';
+
   return (
     <div className="min-h-screen bg-base p-4 md:p-6">
+      {showMyCards && canViewCards && (
+        <MyCardsModal human={human} onClose={() => setShowMyCards(false)} />
+      )}
       <header className="flex items-center justify-between mb-4 max-w-6xl mx-auto">
         <div>
           <h1 className="text-2xl font-extrabold text-ink">Mitología</h1>
@@ -30,13 +37,24 @@ export function Game({ onOpenModerator }: { onOpenModerator: () => void }) {
             Ronda {round || '—'} · {phaseLabel(phase)}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onOpenModerator}
-          className="text-link text-sm hover:underline"
-        >
-          Vista moderador →
-        </button>
+        <div className="flex items-center gap-3">
+          {canViewCards && (
+            <button
+              type="button"
+              onClick={() => setShowMyCards(true)}
+              className="rounded-lg bg-accent px-3 py-1.5 text-sm font-bold text-ink shadow hover:bg-accent-dark"
+            >
+              🃏 Mis cartas
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onOpenModerator}
+            className="text-link text-sm hover:underline"
+          >
+            Vista moderador →
+          </button>
+        </div>
       </header>
 
       <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-6">
@@ -61,6 +79,77 @@ export function Game({ onOpenModerator }: { onOpenModerator: () => void }) {
             <PlayerStrip players={players} humanId={humanId} />
           </div>
         </aside>
+      </div>
+    </div>
+  );
+}
+
+function MyCardsModal({
+  human,
+  onClose,
+}: {
+  human: Player;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-xl font-extrabold text-ink">Mis cartas</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg px-2 py-1 text-sm font-bold text-ink/60 hover:bg-base"
+          >
+            ✕
+          </button>
+        </div>
+
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink/50">
+          Tu combinación secreta (orden: izquierda → derecha)
+        </p>
+        <div className="mb-4 flex gap-3">
+          {human.hand.map((c) => {
+            const isRevealed = c.id === human.revealedCardId;
+            return (
+              <div
+                key={c.id}
+                className={`relative rounded-xl border-2 p-3 ${
+                  isRevealed ? 'border-link bg-link/5' : 'border-ink/10 bg-base'
+                }`}
+              >
+                <TokenIcon figure={c.figure} size="lg" showLabel />
+                {isRevealed && (
+                  <span className="absolute -top-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-link px-2 py-0.5 text-[10px] font-bold text-white">
+                    Pública
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="rounded-lg border border-link/20 bg-link/5 p-3">
+          <div className="text-xs font-semibold uppercase text-link">
+            Tu condición secreta
+          </div>
+          <div className="mt-1 text-sm font-bold text-ink">
+            {human.condition.label}
+          </div>
+          <p className="mt-1 text-xs text-ink/60">
+            Si se cumple al final de la partida, tu puntaje se multiplica ×2.
+          </p>
+        </div>
+
+        <p className="mt-4 text-center text-xs text-ink/50">
+          Solo tú y el moderador pueden ver esta información.
+        </p>
       </div>
     </div>
   );
@@ -224,7 +313,10 @@ function RoundView({ phase }: { phase: string }) {
   }
 
   const selectedTokens = draft && drawn ? drawn[draft.tombola] : [];
-  const selectedFigures = selectedTokens.map((token) => token.figure);
+  // Figuras en el orden de colocación elegido por el jugador.
+  const selectedFigures = draft
+    ? draft.order.map((i) => selectedTokens[i].figure)
+    : [];
   const selectedColumns = draft?.columns ?? [];
   const columnsReady = selectedColumns.every((c) => c !== null);
   const placementResult =

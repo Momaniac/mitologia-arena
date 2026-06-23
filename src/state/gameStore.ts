@@ -26,6 +26,16 @@ import { createGameSession, rememberSession } from '../services/gameSession';
 const TOTAL_ROUNDS = 5;
 const STARTING_COINS = 30;
 
+/** Apuesta provisional por defecto al iniciar (o reiniciar) una ronda. */
+function freshDraftBet(): NonNullable<GameState['draftBet']> {
+  return {
+    tombola: 'A',
+    amount: 3,
+    order: [0, 1, 2, 3],
+    columns: [null, null, null, null],
+  };
+}
+
 type SetupConfig = {
   humanName: string;
   numBots: number;
@@ -61,6 +71,9 @@ type GameState = {
   draftBet: {
     tombola: 'A' | 'B';
     amount: number;
+    /** Orden de colocación elegido (permutación de índices 0-3 de las fichas extraídas). */
+    order: number[];
+    /** Columna por slot de colocación; el slot k corresponde a la ficha order[k]. */
     columns: (number | null)[];
   } | null;
   lastResolution: ReturnType<typeof resolveRound> | null;
@@ -217,7 +230,7 @@ export const useGameStore = create<Store>((set, get) => ({
       tombolas: { A: a.remaining, B: b.remaining },
       currentDraw: { A: a.drawn, B: b.drawn },
       pendingBets: [],
-      draftBet: { tombola: 'A', amount: 3, columns: [null, null, null, null] },
+      draftBet: freshDraftBet(),
       lastPlacements: [],
       phase: 'BETTING',
       round: round || 1,
@@ -227,7 +240,13 @@ export const useGameStore = create<Store>((set, get) => ({
   updateDraftBet(patch) {
     const draft = get().draftBet;
     if (!draft) return;
-    set({ draftBet: { ...draft, ...patch } });
+    const next = { ...draft, ...patch };
+    // Al cambiar de tómbola, las 4 fichas son otras: reinicia orden y columnas.
+    if (patch.tombola && patch.tombola !== draft.tombola) {
+      next.order = [0, 1, 2, 3];
+      next.columns = [null, null, null, null];
+    }
+    set({ draftBet: next });
   },
 
   setDraftColumn(index: number, col: number | null) {
@@ -248,6 +267,7 @@ export const useGameStore = create<Store>((set, get) => ({
       tombola: draftBet.tombola,
       amount: draftBet.amount,
       columns: draftBet.columns as [number, number, number, number],
+      order: draftBet.order as [number, number, number, number],
     };
 
     // Bots deciden
@@ -272,7 +292,6 @@ export const useGameStore = create<Store>((set, get) => ({
     let refunded = false;
     let finalPlayers = playersAfterBet;
     let lastPlacements: Placement[] = [];
-    let restoredTombolas: TombolaState | null = null;
 
     if (resolution.kind === 'winner') {
       winnerTombola = resolution.winnerTombola;
@@ -280,9 +299,11 @@ export const useGameStore = create<Store>((set, get) => ({
       const winningTokens =
         winnerTombola === 'A' ? currentDraw.A : currentDraw.B;
       const winnerBet = allBets.find((b) => b.playerId === winnerPlayerId)!;
+      // Coloca siguiendo el orden elegido por el jugador.
+      const orderedFigures = winnerBet.order.map((i) => winningTokens[i].figure);
       const placeResult = placeTokens(
         nextBoard,
-        winningTokens.map((t) => t.figure),
+        orderedFigures,
         winnerBet.columns,
         winningTokens.map((t) => t.figure),
       );
@@ -303,11 +324,8 @@ export const useGameStore = create<Store>((set, get) => ({
         const b = allBets.find((x) => x.playerId === p.id);
         return b ? { ...p, coins: p.coins + b.amount } : p;
       });
-      // Devolver fichas a las tómbolas — las tómbolas permanecen intactas para repetir ronda
-      restoredTombolas = {
-        A: [...get().tombolas.A, ...currentDraw.A],
-        B: [...get().tombolas.B, ...currentDraw.B],
-      };
+      // Empate: NO se vuelve a sortear. Las mismas 4+4 fichas (currentDraw) y las
+      // tómbolas restantes se conservan intactas para repetir la ronda idéntica.
     }
 
     const record: RoundRecord = {
@@ -331,8 +349,6 @@ export const useGameStore = create<Store>((set, get) => ({
       lastResolution: resolution,
       lastPlacements,
       phase: 'ROUND_END',
-      // Si hubo empate, restaurar tómbolas para que la ronda se repita
-      ...(restoredTombolas ? { tombolas: restoredTombolas } : {}),
     });
 
     // Avanzar tras un breve delay sería ideal en UI; por ahora la UI
@@ -347,10 +363,16 @@ export const useGameStore = create<Store>((set, get) => ({
     const wasTie = lastResolution && lastResolution.kind === 'voided';
 
     if (wasTie) {
-      // Empate: repetir la misma ronda (no avanzar contador)
-      // Las tómbolas ya fueron restauradas en submitHumanBet
-      set({ currentDraw: null, draftBet: null });
-      get().startRound();
+      // Empate: repetir la MISMA ronda con las mismas fichas, valores, orden y
+      // posición. No se vuelve a sortear: se conserva currentDraw y las tómbolas.
+      // Solo se reinicia la apuesta y se vuelve a la fase de apuestas.
+      set({
+        draftBet: freshDraftBet(),
+        pendingBets: [],
+        lastResolution: null,
+        lastPlacements: [],
+        phase: 'BETTING',
+      });
       return;
     }
 

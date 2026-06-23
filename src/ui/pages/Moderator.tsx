@@ -1,12 +1,43 @@
-import { FIGURE_LABEL } from '../../engine/types';
+import { FIGURE_LABEL, FIGURES, type Figure, type Token } from '../../engine/types';
 import { useGameStore } from '../../state/gameStore';
 import { TokenIcon } from '../components/TokenIcon';
+
+function countFigures(tokens: Token[]): Record<Figure, number> {
+  const counts = Object.fromEntries(FIGURES.map((f) => [f, 0])) as Record<
+    Figure,
+    number
+  >;
+  for (const t of tokens) counts[t.figure] += 1;
+  return counts;
+}
+
+function TombolaRemaining({ id, tokens }: { id: 'A' | 'B'; tokens: Token[] }) {
+  const counts = countFigures(tokens);
+  return (
+    <div className="p-3 rounded-lg bg-white/5 border border-white/10">
+      <div className="flex items-baseline justify-between mb-2">
+        <span className="font-bold">Tómbola {id}</span>
+        <span className="font-mono text-accent">{tokens.length} fichas restantes</span>
+      </div>
+      <div className="grid grid-cols-5 gap-2">
+        {FIGURES.map((f) => (
+          <div key={f} className="flex flex-col items-center gap-1">
+            <TokenIcon figure={f} size="sm" />
+            <span className="font-mono text-sm">{counts[f]}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function Moderator({ onClose }: { onClose: () => void }) {
   const players = useGameStore((s) => s.players);
   const history = useGameStore((s) => s.history);
   const round = useGameStore((s) => s.round);
   const phase = useGameStore((s) => s.phase);
+  const tombolas = useGameStore((s) => s.tombolas);
+  const currentDraw = useGameStore((s) => s.currentDraw);
 
   return (
     <div className="min-h-screen bg-ink text-white p-6">
@@ -32,6 +63,45 @@ export function Moderator({ onClose }: { onClose: () => void }) {
           <h2 className="text-lg font-bold mb-3">
             Estado actual: Ronda {round} · {phase}
           </h2>
+        </section>
+
+        <section className="bg-white/5 p-4 rounded-xl border border-white/10">
+          <h2 className="text-lg font-bold mb-1">Estado de las tómbolas</h2>
+          <p className="text-white/60 text-sm mb-3">
+            Fichas que quedan en cada tómbola. Cada ronda se extraen 4 de A y 4 de
+            B; las de la tómbola ganadora se colocan en el tablero y las de la otra
+            se eliminan del juego. Ambas tómbolas deben bajar de 20 a 0 a lo largo
+            de las 5 rondas.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+            <TombolaRemaining id="A" tokens={tombolas.A} />
+            <TombolaRemaining id="B" tokens={tombolas.B} />
+          </div>
+          {currentDraw && (
+            <div className="rounded-lg bg-white/5 border border-white/10 p-3">
+              <div className="text-xs text-white/60 mb-2">
+                Fichas extraídas en la ronda actual (fuera de las tómbolas)
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <span className="text-sm font-semibold">Extraídas de A</span>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {currentDraw.A.map((t) => (
+                      <TokenIcon key={t.id} figure={t.figure} size="sm" />
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-sm font-semibold">Extraídas de B</span>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {currentDraw.B.map((t) => (
+                      <TokenIcon key={t.id} figure={t.figure} size="sm" />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </section>
 
         <section className="bg-white/5 p-4 rounded-xl border border-white/10">

@@ -3,7 +3,7 @@ import { resolveRound } from './betting';
 import type { Bet } from './types';
 
 function bet(playerId: string, tombola: 'A' | 'B', amount: number): Bet {
-  return { playerId, tombola, amount, columns: [0, 0, 0, 0] };
+  return { playerId, tombola, amount, columns: [0, 0, 0, 0], order: [0, 1, 2, 3] };
 }
 
 describe('resolveRound', () => {

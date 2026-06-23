@@ -43,8 +43,14 @@ export type Bet = {
   playerId: string;
   tombola: TombolaId;
   amount: number;
-  /** Las 4 columnas elegidas, en orden de colocación de las 4 fichas extraídas. */
+  /** Las 4 columnas elegidas, en orden de colocación. */
   columns: [number, number, number, number];
+  /**
+   * Orden de colocación elegido por el jugador: permutación de los índices 0-3
+   * de las 4 fichas extraídas de la tómbola. El slot k de `columns` corresponde
+   * a la ficha `order[k]`. Por defecto [0,1,2,3] (orden de extracción).
+   */
+  order: [number, number, number, number];
 };
 
 /** Board[row][col]; row 0 = top, row 4 = bottom. null = vacío. */

@@ -38,7 +38,8 @@ export function botDecideBet(
     drawn.map((token) => token.figure),
     rng,
   );
-  return { playerId: bot.id, tombola, amount, columns };
+  // Los bots colocan en el orden de extracción (sin reordenar).
+  return { playerId: bot.id, tombola, amount, columns, order: [0, 1, 2, 3] };
 }
 
 /**

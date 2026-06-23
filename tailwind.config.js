@@ -18,7 +18,7 @@ export default {
         hydra: '#27AE60',
         fenix: '#E67E22',
         kraken: '#2C3E50',
-        minotauro: '#7B4F2A',
+        minotauro: '#B5835A',
       },
       boxShadow: {
         glow: '0 0 0 2px #FFC107, 0 0 16px 4px rgba(255, 193, 7, 0.55)',
