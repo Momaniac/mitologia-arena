@@ -81,6 +81,8 @@ type GameState = {
   setupError: string | null;
   gameId: string | null;
   moderatorSecret: string | null;
+  /** UI: modal "Mis cartas" abierto. */
+  myCardsOpen: boolean;
 };
 
 type GameActions = {
@@ -94,6 +96,7 @@ type GameActions = {
   submitHumanBet: () => void;
   proceedToResults: () => void;
   resetGame: () => void;
+  setMyCardsOpen: (open: boolean) => void;
 };
 
 export type Store = GameState & GameActions;
@@ -119,6 +122,7 @@ const initialState: GameState = {
   setupError: null,
   gameId: null,
   moderatorSecret: null,
+  myCardsOpen: false,
 };
 
 export const useGameStore = create<Store>((set, get) => ({
@@ -399,6 +403,10 @@ export const useGameStore = create<Store>((set, get) => ({
 
   resetGame() {
     set({ ...initialState, rng: makeRng(Date.now()) });
+  },
+
+  setMyCardsOpen(open) {
+    set({ myCardsOpen: open });
   },
 }));
 

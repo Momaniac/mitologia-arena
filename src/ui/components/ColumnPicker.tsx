@@ -37,6 +37,7 @@ export function ColumnPicker() {
   const board = useGameStore((s) => s.board);
   const setCol = useGameStore((s) => s.setDraftColumn);
   const updateDraft = useGameStore((s) => s.updateDraftBet);
+  const setMyCardsOpen = useGameStore((s) => s.setMyCardsOpen);
   if (!draft || !drawn) return null;
 
   const draftColumns = draft.columns;
@@ -90,7 +91,20 @@ export function ColumnPicker() {
 
   return (
     <div className="p-4 rounded-xl border border-ink/10 bg-white">
-      <h3 className="font-bold text-ink mb-3">Posición de colocación</h3>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h3 className="font-bold text-ink">Posición de colocación</h3>
+        <button
+          type="button"
+          onClick={() => setMyCardsOpen(true)}
+          className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-sm font-bold text-ink shadow hover:bg-accent-dark"
+        >
+          🃏 Mis cartas
+        </button>
+      </div>
+      <p className="mb-3 text-xs text-ink/60">
+        ¿Olvidaste tu combinación? Consúltala aquí mismo sin perder de vista tu
+        jugada.
+      </p>
 
       {/* Paso 1 — Define el orden de las fichas */}
       <div className="mb-4">

@@ -17,7 +17,8 @@ export function Game({ onOpenModerator }: { onOpenModerator: () => void }) {
   const board = useGameStore((s) => s.board);
   const round = useGameStore((s) => s.round);
   const lastPlacements = useGameStore((s) => s.lastPlacements);
-  const [showMyCards, setShowMyCards] = useState(false);
+  const showMyCards = useGameStore((s) => s.myCardsOpen);
+  const setMyCardsOpen = useGameStore((s) => s.setMyCardsOpen);
 
   const human = players.find((p) => p.id === humanId);
   if (!human) return null;
@@ -28,7 +29,7 @@ export function Game({ onOpenModerator }: { onOpenModerator: () => void }) {
   return (
     <div className="min-h-screen bg-base p-4 md:p-6">
       {showMyCards && canViewCards && (
-        <MyCardsModal human={human} onClose={() => setShowMyCards(false)} />
+        <MyCardsModal human={human} onClose={() => setMyCardsOpen(false)} />
       )}
       <header className="flex items-center justify-between mb-4 max-w-6xl mx-auto">
         <div>
@@ -41,7 +42,7 @@ export function Game({ onOpenModerator }: { onOpenModerator: () => void }) {
           {canViewCards && (
             <button
               type="button"
-              onClick={() => setShowMyCards(true)}
+              onClick={() => setMyCardsOpen(true)}
               className="rounded-lg bg-accent px-3 py-1.5 text-sm font-bold text-ink shadow hover:bg-accent-dark"
             >
               🃏 Mis cartas
