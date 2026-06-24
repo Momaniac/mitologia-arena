@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local Supabase DB password (do NOT commit)
+.supabase-db-password.txt
+.env
+.env.local
