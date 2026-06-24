@@ -133,10 +133,7 @@ function HostLobby() {
 
   const teamsValid =
     teams.length >= 2 &&
-    teams.every((t) => {
-      const m = membersOf(connected, t);
-      return m.length >= 4 && m.length <= 6 && t.representative;
-    });
+    teams.every((t) => membersOf(connected, t).length >= 1 && t.representative);
 
   return (
     <div className="min-h-screen bg-base p-4 md:p-6">

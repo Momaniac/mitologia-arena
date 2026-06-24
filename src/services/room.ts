@@ -168,6 +168,32 @@ export async function loadSnapshot(gameId: string): Promise<RoomSnapshot> {
   };
 }
 
+export type HostDetail = {
+  secrets: TeamSecret[];
+  tombolaA: Token[];
+  tombolaB: Token[];
+};
+
+/** Detalle completo solo para el moderador: secretos de todos + tómbolas restantes. */
+export async function loadHostDetail(gameId: string): Promise<HostDetail> {
+  const [{ data: secrets }, { data: priv }] = await Promise.all([
+    supabase
+      .from('team_secrets')
+      .select('team_id, hand, combination, condition, coins')
+      .eq('game_id', gameId),
+    supabase
+      .from('game_private')
+      .select('tombola_a, tombola_b')
+      .eq('game_id', gameId)
+      .maybeSingle(),
+  ]);
+  return {
+    secrets: (secrets ?? []) as unknown as TeamSecret[],
+    tombolaA: ((priv?.tombola_a ?? []) as unknown as Token[]),
+    tombolaB: ((priv?.tombola_b ?? []) as unknown as Token[]),
+  };
+}
+
 /** Carga el secreto del equipo del jugador (RLS lo permite solo a miembros/host). */
 export async function loadMyTeamSecret(teamId: string): Promise<TeamSecret | null> {
   const { data, error } = await supabase
@@ -206,8 +232,9 @@ export async function autoAssignTeams(gameId: string): Promise<void> {
   const n = players.length;
   if (n === 0) throw new Error('No hay jugadores para armar equipos.');
 
-  // Número de equipos buscando tamaño objetivo 5 (acota a 4-6 por equipo).
-  const numTeams = Math.max(1, Math.round(n / 5));
+  // Tamaño objetivo ~5 por equipo, pero siempre al menos 2 equipos (y nunca más
+  // equipos que jugadores). Para conteos altos (hasta 30) da equipos de 4-6.
+  const numTeams = Math.min(n, Math.max(2, Math.round(n / 5)));
 
   // Borra equipos previos (reasigna desde cero).
   await supabase.from('teams').delete().eq('game_id', gameId);
@@ -265,8 +292,8 @@ export async function startGame(gameId: string): Promise<void> {
 
   for (const t of teams) {
     const members = snap.players.filter((p) => p.team_id === t.id);
-    if (members.length < 4 || members.length > 6) {
-      throw new Error(`"${t.name}" debe tener entre 4 y 6 integrantes (tiene ${members.length}).`);
+    if (members.length < 1) {
+      throw new Error(`"${t.name}" no tiene integrantes.`);
     }
     if (!t.representative) {
       throw new Error(`"${t.name}" no tiene representante asignado.`);

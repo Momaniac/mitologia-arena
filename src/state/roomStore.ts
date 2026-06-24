@@ -4,12 +4,14 @@ import {
   createGame,
   joinGame,
   leaveGame,
+  loadHostDetail,
   loadMyTeamSecret,
   loadSnapshot,
   renameTeam,
   setRepresentative,
   startGame,
   subscribeRoom,
+  type HostDetail,
   type LobbyGame,
   type LobbyPlayer,
   type LobbyTeam,
@@ -30,6 +32,7 @@ type RoomState = {
   players: LobbyPlayer[];
   teams: LobbyTeam[];
   mySecret: TeamSecret | null;
+  hostDetail: HostDetail | null;
   busy: boolean;
   error: string | null;
 };
@@ -74,6 +77,7 @@ const initial: RoomState = {
   players: [],
   teams: [],
   mySecret: null,
+  hostDetail: null,
   busy: false,
   error: null,
 };
@@ -137,7 +141,15 @@ export const useRoomStore = create<RoomState & RoomActions>((set, get) => ({
       } else {
         mySecret = null;
       }
-      set({ game: snap.game, players: snap.players, teams: snap.teams, mySecret });
+      let hostDetail = get().hostDetail;
+      if (get().role === 'host' && snap.game.status !== 'lobby') {
+        try {
+          hostDetail = await loadHostDetail(gameId);
+        } catch {
+          /* ignora */
+        }
+      }
+      set({ game: snap.game, players: snap.players, teams: snap.teams, mySecret, hostDetail });
     } catch (e) {
       set({ error: errMessage(e) });
     }

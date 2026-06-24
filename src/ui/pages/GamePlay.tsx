@@ -8,6 +8,7 @@ import {
   lowestFreeRow,
   placeTokens,
 } from '../../engine/board';
+import { FIGURES } from '../../engine/types';
 import type {
   Board as BoardType,
   Card,
@@ -109,10 +110,11 @@ function HostSetup() {
         type="button"
         disabled={!allReady || busy}
         onClick={hostStart}
-        className="w-full rounded-lg bg-accent py-3 font-bold text-ink hover:bg-accent-dark disabled:opacity-50"
+        className="mb-4 w-full rounded-lg bg-accent py-3 font-bold text-ink hover:bg-accent-dark disabled:opacity-50"
       >
         Iniciar rondas
       </button>
+      <ModeratorPanel />
     </div>
   );
 }
@@ -189,6 +191,93 @@ function TeamSetup() {
       >
         Confirmar combinación
       </button>
+    </div>
+  );
+}
+
+function countFigures(tokens: Token[]): Record<Figure, number> {
+  const c = Object.fromEntries(FIGURES.map((f) => [f, 0])) as Record<Figure, number>;
+  for (const t of tokens) c[t.figure] += 1;
+  return c;
+}
+
+function ModeratorPanel() {
+  const detail = useRoomStore((s) => s.hostDetail);
+  const teams = useRoomStore((s) => s.teams);
+  const players = useRoomStore((s) => s.players);
+  const [open, setOpen] = useState(true);
+  if (!detail) return null;
+  const countsA = countFigures(detail.tombolaA);
+  const countsB = countFigures(detail.tombolaB);
+
+  return (
+    <div className="rounded-xl border border-link/20 bg-link/5 p-4">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="mb-2 flex w-full items-center justify-between font-bold text-ink"
+      >
+        <span>🔒 Panel del moderador</span>
+        <span className="text-ink/50">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="space-y-4">
+          <div>
+            <div className="mb-1 text-xs font-semibold uppercase text-ink/60">
+              Fichas restantes en tómbolas
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {(['A', 'B'] as const).map((id) => {
+                const counts = id === 'A' ? countsA : countsB;
+                const total = id === 'A' ? detail.tombolaA.length : detail.tombolaB.length;
+                return (
+                  <div key={id} className="rounded-lg bg-white p-2">
+                    <div className="mb-1 flex justify-between text-sm font-bold text-ink">
+                      <span>Tómbola {id}</span>
+                      <span>{total}</span>
+                    </div>
+                    <div className="grid grid-cols-5 gap-1">
+                      {FIGURES.map((f) => (
+                        <div key={f} className="flex flex-col items-center">
+                          <TokenIcon figure={f} size="sm" />
+                          <span className="text-[11px] font-mono">{counts[f]}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-1 text-xs font-semibold uppercase text-ink/60">Equipos (información secreta)</div>
+            <div className="space-y-2">
+              {teams.map((t) => {
+                const sec = detail.secrets.find((s) => s.team_id === t.id);
+                const members = players.filter((p) => p.team_id === t.id).length;
+                return (
+                  <div key={t.id} className="rounded-lg bg-white p-2 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-ink">{t.name}</span>
+                      <span className="font-mono text-ink/70">
+                        {sec?.coins ?? '—'} 🪙 · {members} int. {t.bet_submitted ? '· ✓ apostó' : ''}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex items-center gap-2">
+                      <span className="text-xs text-ink/50">Combo:</span>
+                      {sec?.combination
+                        ? sec.combination.map((f, i) => <TokenIcon key={i} figure={f} size="sm" />)
+                        : <span className="text-xs text-ink/40">sin definir</span>}
+                    </div>
+                    <div className="text-xs text-ink/60">Condición: {sec?.condition.label ?? '—'}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -315,6 +404,8 @@ function HostRound() {
           </button>
         </div>
       )}
+
+      <ModeratorPanel />
     </div>
   );
 }
