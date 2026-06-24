@@ -343,13 +343,7 @@ export type Database = {
     Functions: {
       is_game_host: { Args: { g: string }; Returns: boolean }
       is_game_participant: { Args: { g: string }; Returns: boolean }
-      join_game: {
-        Args: { p_code: string; p_name: string }
-        Returns: {
-          game_id: string
-          player_id: string
-        }[]
-      }
+      join_game: { Args: { p_code: string; p_name: string }; Returns: Json }
       my_team_id: { Args: { g: string }; Returns: string }
     }
     Enums: {
