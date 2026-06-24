@@ -2,13 +2,14 @@ import { useState } from 'react';
 import { useRoomStore } from '../../state/roomStore';
 import { isSupabaseConfigured } from '../../services/supabase';
 import type { LobbyPlayer, LobbyTeam } from '../../services/room';
+import { GamePlay } from './GamePlay';
 
 export function Lobby({ onShowTutorial }: { onShowTutorial: () => void }) {
   const role = useRoomStore((s) => s.role);
   const status = useRoomStore((s) => s.game?.status);
 
   if (!role) return <MultiplayerHome onShowTutorial={onShowTutorial} />;
-  if (status && status !== 'lobby') return <StartingPlaceholder />;
+  if (status && status !== 'lobby') return <GamePlay />;
   return role === 'host' ? <HostLobby /> : <PlayerLobby />;
 }
 
@@ -308,19 +309,3 @@ function PlayerLobby() {
   );
 }
 
-function StartingPlaceholder() {
-  const leave = useRoomStore((s) => s.leave);
-  return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-base p-6 text-center">
-      <div className="text-4xl">🎲</div>
-      <h1 className="text-xl font-bold text-ink">La partida está iniciando…</h1>
-      <p className="max-w-sm text-sm text-ink/60">
-        La configuración de partida y el juego multijugador están en construcción
-        (siguiente fase). Los datos ya se guardaron correctamente.
-      </p>
-      <button type="button" onClick={leave} className="mt-2 text-sm text-link hover:underline">
-        Volver al inicio
-      </button>
-    </div>
-  );
-}

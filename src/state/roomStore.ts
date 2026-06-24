@@ -4,6 +4,7 @@ import {
   createGame,
   joinGame,
   leaveGame,
+  loadMyTeamSecret,
   loadSnapshot,
   renameTeam,
   setRepresentative,
@@ -12,7 +13,10 @@ import {
   type LobbyGame,
   type LobbyPlayer,
   type LobbyTeam,
+  type TeamSecret,
 } from '../services/room';
+import * as game from '../services/game';
+import type { Combination } from '../engine/types';
 
 export type RoomRole = 'host' | 'player';
 
@@ -25,6 +29,7 @@ type RoomState = {
   game: LobbyGame | null;
   players: LobbyPlayer[];
   teams: LobbyTeam[];
+  mySecret: TeamSecret | null;
   busy: boolean;
   error: string | null;
 };
@@ -37,9 +42,25 @@ type RoomActions = {
   setRep: (teamId: string, playerAuthUid: string) => Promise<void>;
   rename: (teamId: string, name: string) => Promise<void>;
   start: () => Promise<void>;
+  defineSetup: (combination: Combination, revealedCardId: string) => Promise<void>;
+  submitBet: (
+    tombola: 'A' | 'B',
+    amount: number,
+    order: number[],
+    columns: number[],
+  ) => Promise<void>;
+  hostStart: () => Promise<void>;
+  hostResolve: () => Promise<void>;
+  hostAdvance: () => Promise<void>;
   leave: () => Promise<void>;
   clearError: () => void;
 };
+
+/** team_id del jugador actual (null si es host o aún sin equipo). */
+function myTeamId(state: RoomState): string | null {
+  const me = state.players.find((p) => p.auth_uid === state.myUid);
+  return me?.team_id ?? null;
+}
 
 let unsub: (() => void) | null = null;
 
@@ -52,6 +73,7 @@ const initial: RoomState = {
   game: null,
   players: [],
   teams: [],
+  mySecret: null,
   busy: false,
   error: null,
 };
@@ -103,7 +125,19 @@ export const useRoomStore = create<RoomState & RoomActions>((set, get) => ({
     if (!gameId) return;
     try {
       const snap = await loadSnapshot(gameId);
-      set({ game: snap.game, players: snap.players, teams: snap.teams });
+      const me = snap.players.find((p) => p.auth_uid === get().myUid);
+      const teamId = me?.team_id ?? null;
+      let mySecret = get().mySecret;
+      if (teamId) {
+        try {
+          mySecret = await loadMyTeamSecret(teamId);
+        } catch {
+          /* aún sin secretos (antes de iniciar) */
+        }
+      } else {
+        mySecret = null;
+      }
+      set({ game: snap.game, players: snap.players, teams: snap.teams, mySecret });
     } catch (e) {
       set({ error: errMessage(e) });
     }
@@ -147,6 +181,77 @@ export const useRoomStore = create<RoomState & RoomActions>((set, get) => ({
     set({ busy: true, error: null });
     try {
       await startGame(gameId);
+      await get().refresh();
+    } catch (e) {
+      set({ error: errMessage(e) });
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  async defineSetup(combination, revealedCardId) {
+    const teamId = myTeamId(get());
+    if (!teamId) return;
+    set({ busy: true, error: null });
+    try {
+      await game.defineSetup(teamId, combination, revealedCardId);
+      await get().refresh();
+    } catch (e) {
+      set({ error: errMessage(e) });
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  async submitBet(tombola, amount, order, columns) {
+    const teamId = myTeamId(get());
+    const round = get().game?.round ?? 0;
+    if (!teamId) return;
+    set({ busy: true, error: null });
+    try {
+      await game.submitBet(teamId, round, tombola, amount, order, columns);
+      await get().refresh();
+    } catch (e) {
+      set({ error: errMessage(e) });
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  async hostStart() {
+    const { gameId } = get();
+    if (!gameId) return;
+    set({ busy: true, error: null });
+    try {
+      await game.hostStartRounds(gameId);
+      await get().refresh();
+    } catch (e) {
+      set({ error: errMessage(e) });
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  async hostResolve() {
+    const { gameId } = get();
+    if (!gameId) return;
+    set({ busy: true, error: null });
+    try {
+      await game.resolveRound(gameId);
+      await get().refresh();
+    } catch (e) {
+      set({ error: errMessage(e) });
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  async hostAdvance() {
+    const { gameId } = get();
+    if (!gameId) return;
+    set({ busy: true, error: null });
+    try {
+      await game.advanceRound(gameId);
       await get().refresh();
     } catch (e) {
       set({ error: errMessage(e) });

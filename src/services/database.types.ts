@@ -305,6 +305,7 @@ export type Database = {
           representative: string | null
           revealed_card_id: string | null
           score: number
+          setup_done: boolean
         }
         Insert: {
           bet_submitted?: boolean
@@ -315,6 +316,7 @@ export type Database = {
           representative?: string | null
           revealed_card_id?: string | null
           score?: number
+          setup_done?: boolean
         }
         Update: {
           bet_submitted?: boolean
@@ -325,6 +327,7 @@ export type Database = {
           representative?: string | null
           revealed_card_id?: string | null
           score?: number
+          setup_done?: boolean
         }
         Relationships: [
           {
@@ -341,10 +344,30 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      define_setup: {
+        Args: {
+          p_combination: Json
+          p_revealed_card_id: string
+          p_team_id: string
+        }
+        Returns: undefined
+      }
       is_game_host: { Args: { g: string }; Returns: boolean }
       is_game_participant: { Args: { g: string }; Returns: boolean }
+      is_team_rep: { Args: { p_team_id: string }; Returns: boolean }
       join_game: { Args: { p_code: string; p_name: string }; Returns: Json }
       my_team_id: { Args: { g: string }; Returns: string }
+      submit_bet: {
+        Args: {
+          p_amount: number
+          p_columns: Json
+          p_order: Json
+          p_round: number
+          p_team_id: string
+          p_tombola: string
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never

@@ -5,6 +5,38 @@ import { buildTombolas } from '../engine/tombolas';
 import { dealHands, handToCombination } from '../engine/deck';
 import { assignUniqueConditions } from '../engine/conditions';
 import { makeRng } from '../engine/rng';
+import type {
+  Board,
+  Card,
+  Combination,
+  Condition,
+  Token,
+} from '../engine/types';
+
+export type RoundResultPublic = {
+  round: number;
+  kind: 'winner' | 'void';
+  tombola?: 'A' | 'B';
+  totals: { A: number; B: number };
+  reason?: string;
+};
+
+export type TeamScore = {
+  teamId: string;
+  name: string;
+  raw: number;
+  conditionMet: boolean;
+  multiplier: 1 | 2;
+  total: number;
+};
+
+export type TeamSecret = {
+  team_id: string;
+  hand: Card[];
+  combination: Combination | null;
+  condition: Condition;
+  coins: number;
+};
 
 // Caracteres sin ambigüedad (sin I, O, 0, 1, L).
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -25,6 +57,11 @@ export type LobbyGame = {
   mode: string;
   phase: string;
   round: number;
+  board: Board;
+  current_draw: { A: Token[]; B: Token[] } | null;
+  bet_totals: { A: number; B: number } | null;
+  last_result: RoundResultPublic | null;
+  final_scores: TeamScore[] | null;
 };
 
 export type LobbyPlayer = {
@@ -43,6 +80,7 @@ export type LobbyTeam = {
   score: number;
   representative: string | null;
   bet_submitted: boolean;
+  setup_done: boolean;
 };
 
 export type RoomSnapshot = {
@@ -116,18 +154,29 @@ export async function joinGame(
 export async function loadSnapshot(gameId: string): Promise<RoomSnapshot> {
   const [{ data: game, error: ge }, { data: players, error: pe }, { data: teams, error: te }] =
     await Promise.all([
-      supabase.from('games').select('id, code, host_uid, status, mode, phase, round').eq('id', gameId).single(),
+      supabase.from('games').select('id, code, host_uid, status, mode, phase, round, board, current_draw, bet_totals, last_result, final_scores').eq('id', gameId).single(),
       supabase.from('players').select('id, game_id, team_id, auth_uid, name, connected').eq('game_id', gameId).order('joined_at'),
-      supabase.from('teams').select('id, game_id, name, score, representative, bet_submitted').eq('game_id', gameId).order('created_at'),
+      supabase.from('teams').select('id, game_id, name, score, representative, bet_submitted, setup_done').eq('game_id', gameId).order('created_at'),
     ]);
   if (ge) throw ge;
   if (pe) throw pe;
   if (te) throw te;
   return {
-    game: game as LobbyGame,
+    game: game as unknown as LobbyGame,
     players: (players ?? []) as LobbyPlayer[],
-    teams: (teams ?? []) as LobbyTeam[],
+    teams: (teams ?? []) as unknown as LobbyTeam[],
   };
+}
+
+/** Carga el secreto del equipo del jugador (RLS lo permite solo a miembros/host). */
+export async function loadMyTeamSecret(teamId: string): Promise<TeamSecret | null> {
+  const { data, error } = await supabase
+    .from('team_secrets')
+    .select('team_id, hand, combination, condition, coins')
+    .eq('team_id', teamId)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? (data as unknown as TeamSecret) : null;
 }
 
 /** Suscribe a cambios del lobby (games/players/teams) de una sala. */
