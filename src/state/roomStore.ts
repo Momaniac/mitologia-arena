@@ -66,6 +66,23 @@ function myTeamId(state: RoomState): string | null {
 }
 
 let unsub: (() => void) | null = null;
+let poll: ReturnType<typeof setInterval> | null = null;
+
+/** Activa realtime + un refresco periódico de respaldo (auto-sana eventos perdidos). */
+function startSync(gameId: string, refresh: () => void) {
+  stopSync();
+  unsub = subscribeRoom(gameId, refresh);
+  poll = setInterval(refresh, 4000);
+}
+
+function stopSync() {
+  unsub?.();
+  unsub = null;
+  if (poll) {
+    clearInterval(poll);
+    poll = null;
+  }
+}
 
 const initial: RoomState = {
   role: null,
@@ -95,10 +112,7 @@ export const useRoomStore = create<RoomState & RoomActions>((set, get) => ({
       const { gameId, code, hostUid } = await createGame();
       set({ role: 'host', gameId, code, myUid: hostUid });
       await get().refresh();
-      unsub?.();
-      unsub = subscribeRoom(gameId, () => {
-        get().refresh();
-      });
+      startSync(gameId, () => get().refresh());
     } catch (e) {
       set({ error: errMessage(e) });
     } finally {
@@ -113,10 +127,7 @@ export const useRoomStore = create<RoomState & RoomActions>((set, get) => ({
       set({ role: 'player', gameId, myPlayerId: playerId, myUid: uid });
       await get().refresh();
       set({ code: get().game?.code ?? code.toUpperCase() });
-      unsub?.();
-      unsub = subscribeRoom(gameId, () => {
-        get().refresh();
-      });
+      startSync(gameId, () => get().refresh());
     } catch (e) {
       set({ error: errMessage(e) });
     } finally {
@@ -274,8 +285,7 @@ export const useRoomStore = create<RoomState & RoomActions>((set, get) => ({
 
   async leave() {
     const { myPlayerId } = get();
-    unsub?.();
-    unsub = null;
+    stopSync();
     if (myPlayerId) await leaveGame(myPlayerId).catch(() => {});
     set({ ...initial });
   },

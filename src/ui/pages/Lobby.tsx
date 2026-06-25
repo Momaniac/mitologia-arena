@@ -126,6 +126,7 @@ function HostLobby() {
   const setRep = useRoomStore((s) => s.setRep);
   const start = useRoomStore((s) => s.start);
   const leave = useRoomStore((s) => s.leave);
+  const refresh = useRoomStore((s) => s.refresh);
   const busy = useRoomStore((s) => s.busy);
 
   const connected = players.filter((p) => p.connected);
@@ -152,9 +153,33 @@ function HostLobby() {
         <div className="mb-4 rounded-2xl border border-accent/40 bg-accent/10 p-5 text-center">
           <div className="text-xs font-semibold uppercase text-ink/60">Código de la sala</div>
           <div className="font-mono text-5xl font-extrabold tracking-[0.3em] text-ink">{code}</div>
-          <p className="mt-1 text-sm text-ink/70">
-            Compártelo para que los jugadores se unan. {connected.length} conectados.
-          </p>
+          <p className="mt-1 text-sm text-ink/70">Compártelo para que los jugadores se unan desde sus teléfonos.</p>
+        </div>
+
+        <div className="mb-4 rounded-xl border border-ink/10 bg-white p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="font-bold text-ink">
+              Conectados: <span className="text-link">{connected.length}</span>
+            </h3>
+            <button
+              type="button"
+              onClick={refresh}
+              className="rounded-lg border border-ink/10 bg-base px-3 py-1.5 text-sm font-semibold text-ink hover:border-link"
+            >
+              ↻ Actualizar
+            </button>
+          </div>
+          {connected.length === 0 ? (
+            <p className="text-sm text-ink/50">Aún no se une nadie. La lista se actualiza sola.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {connected.map((p) => (
+                <span key={p.id} className="rounded-full bg-base px-3 py-1 text-sm text-ink/80">
+                  {p.name}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="mb-4 flex flex-wrap gap-2">
@@ -171,11 +196,17 @@ function HostLobby() {
             onClick={start}
             disabled={busy || !teamsValid}
             className="rounded-lg bg-accent px-4 py-2 font-bold text-ink hover:bg-accent-dark disabled:opacity-50"
-            title={teamsValid ? '' : 'Cada equipo debe tener 4-6 integrantes y un representante.'}
           >
             Comenzar partida
           </button>
         </div>
+        <p className="mb-4 text-xs text-ink/60">
+          {teams.length === 0
+            ? '1) Espera a que se unan ≥2 jugadores. 2) Pulsa "Armar equipos automáticamente". 3) Se habilitará "Comenzar partida".'
+            : !teamsValid
+              ? 'Cada equipo necesita al menos 1 integrante y un representante para comenzar.'
+              : 'Todo listo: puedes comenzar la partida.'}
+        </p>
 
         {unassigned.length > 0 && (
           <div className="mb-4 rounded-xl border border-ink/10 bg-white p-4">
