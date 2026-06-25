@@ -344,3 +344,41 @@ export async function startGame(gameId: string): Promise<void> {
 export async function leaveGame(playerId: string): Promise<void> {
   await supabase.from('players').update({ connected: false }).eq('id', playerId);
 }
+
+// ---------------------------------------------------------------------------
+// Persistencia de la sala (reconexión al recargar)
+// ---------------------------------------------------------------------------
+
+const ROOM_KEY = 'mitologia.room';
+
+export type PersistedRoom = {
+  gameId: string;
+  role: 'host' | 'player';
+  code: string;
+  myPlayerId: string | null;
+};
+
+export function persistRoom(r: PersistedRoom): void {
+  try {
+    localStorage.setItem(ROOM_KEY, JSON.stringify(r));
+  } catch {
+    /* almacenamiento no disponible */
+  }
+}
+
+export function loadPersistedRoom(): PersistedRoom | null {
+  try {
+    const s = localStorage.getItem(ROOM_KEY);
+    return s ? (JSON.parse(s) as PersistedRoom) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearPersistedRoom(): void {
+  try {
+    localStorage.removeItem(ROOM_KEY);
+  } catch {
+    /* no-op */
+  }
+}

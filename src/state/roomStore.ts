@@ -1,10 +1,13 @@
 import { create } from 'zustand';
 import {
   autoAssignTeams,
+  clearPersistedRoom,
   createGame,
   joinGame,
   leaveGame,
   loadHostDetail,
+  loadPersistedRoom,
+  persistRoom,
   loadMyTeamSecret,
   loadSnapshot,
   renameTeam,
@@ -18,6 +21,7 @@ import {
   type TeamSecret,
 } from '../services/room';
 import * as game from '../services/game';
+import { ensureAnonSession } from '../services/supabase';
 import type { Combination } from '../engine/types';
 
 export type RoomRole = 'host' | 'player';
@@ -55,6 +59,7 @@ type RoomActions = {
   hostStart: () => Promise<void>;
   hostResolve: () => Promise<void>;
   hostAdvance: () => Promise<void>;
+  reconnect: () => Promise<void>;
   leave: () => Promise<void>;
   clearError: () => void;
 };
@@ -112,6 +117,7 @@ export const useRoomStore = create<RoomState & RoomActions>((set, get) => ({
       const { gameId, code, hostUid } = await createGame();
       set({ role: 'host', gameId, code, myUid: hostUid });
       await get().refresh();
+      persistRoom({ gameId, role: 'host', code, myPlayerId: null });
       startSync(gameId, () => get().refresh());
     } catch (e) {
       set({ error: errMessage(e) });
@@ -126,7 +132,9 @@ export const useRoomStore = create<RoomState & RoomActions>((set, get) => ({
       const { gameId, playerId, uid } = await joinGame(code, name);
       set({ role: 'player', gameId, myPlayerId: playerId, myUid: uid });
       await get().refresh();
-      set({ code: get().game?.code ?? code.toUpperCase() });
+      const resolvedCode = get().game?.code ?? code.toUpperCase();
+      set({ code: resolvedCode });
+      persistRoom({ gameId, role: 'player', code: resolvedCode, myPlayerId: playerId });
       startSync(gameId, () => get().refresh());
     } catch (e) {
       set({ error: errMessage(e) });
@@ -283,9 +291,42 @@ export const useRoomStore = create<RoomState & RoomActions>((set, get) => ({
     }
   },
 
+  async reconnect() {
+    const saved = loadPersistedRoom();
+    if (!saved) return;
+    set({ busy: true });
+    try {
+      const uid = await ensureAnonSession();
+      const snap = await loadSnapshot(saved.gameId); // lanza si la sala ya no existe
+      const stillValid =
+        saved.role === 'host'
+          ? snap.game.host_uid === uid
+          : snap.players.some((p) => p.auth_uid === uid);
+      if (!stillValid) {
+        clearPersistedRoom();
+        return;
+      }
+      set({
+        role: saved.role,
+        gameId: saved.gameId,
+        code: snap.game.code,
+        myUid: uid,
+        myPlayerId: saved.myPlayerId,
+      });
+      await get().refresh();
+      startSync(saved.gameId, () => get().refresh());
+    } catch {
+      // Sala borrada o inaccesible: olvida la persistencia y vuelve al inicio.
+      clearPersistedRoom();
+    } finally {
+      set({ busy: false });
+    }
+  },
+
   async leave() {
     const { myPlayerId } = get();
     stopSync();
+    clearPersistedRoom();
     if (myPlayerId) await leaveGame(myPlayerId).catch(() => {});
     set({ ...initial });
   },
