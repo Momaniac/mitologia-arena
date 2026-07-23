@@ -31,6 +31,20 @@ export function dealHands(numPlayers: number, rng: RNG): DealResult {
   return { hands, remaining: shuffled.slice(numPlayers * 3) };
 }
 
+/**
+ * Reparte 3 cartas a cada jugador de forma INDEPENDIENTE (cada mano sale de un
+ * mazo completo recién barajado). A diferencia de `dealHands`, no agota un mazo
+ * compartido de 30, por lo que escala a partidas individuales con muchos
+ * jugadores (>10). Respeta la regla "cada jugador recibe 3 cartas aleatorias".
+ */
+export function dealHandsIndependent(numPlayers: number, rng: RNG): Card[][] {
+  const hands: Card[][] = [];
+  for (let p = 0; p < numPlayers; p++) {
+    hands.push(shuffle(buildDeck(), rng).slice(0, 3));
+  }
+  return hands;
+}
+
 /** Combinación secreta a partir de una mano ordenada por el jugador. */
 export function handToCombination(hand: Card[]): [Figure, Figure, Figure] {
   if (hand.length !== 3) throw new Error('La mano debe tener 3 cartas');

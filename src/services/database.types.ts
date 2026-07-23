@@ -47,8 +47,8 @@ export type Database = {
           game_id: string
           id: string
           order: Json
+          player_id: string
           round: number
-          team_id: string
           tombola: string
         }
         Insert: {
@@ -58,8 +58,8 @@ export type Database = {
           game_id: string
           id?: string
           order: Json
+          player_id: string
           round: number
-          team_id: string
           tombola: string
         }
         Update: {
@@ -69,8 +69,8 @@ export type Database = {
           game_id?: string
           id?: string
           order?: Json
+          player_id?: string
           round?: number
-          team_id?: string
           tombola?: string
         }
         Relationships: [
@@ -82,10 +82,10 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "bets_team_id_fkey"
-            columns: ["team_id"]
+            foreignKeyName: "bets_player_id_fkey"
+            columns: ["player_id"]
             isOneToOne: false
-            referencedRelation: "teams"
+            referencedRelation: "players"
             referencedColumns: ["id"]
           },
         ]
@@ -179,30 +179,42 @@ export type Database = {
       players: {
         Row: {
           auth_uid: string
+          bet_submitted: boolean
           connected: boolean
           game_id: string
           id: string
           joined_at: string
           name: string
-          team_id: string | null
+          revealed_card_id: string | null
+          rounds_won: number
+          score: number
+          setup_done: boolean
         }
         Insert: {
           auth_uid: string
+          bet_submitted?: boolean
           connected?: boolean
           game_id: string
           id?: string
           joined_at?: string
           name: string
-          team_id?: string | null
+          revealed_card_id?: string | null
+          rounds_won?: number
+          score?: number
+          setup_done?: boolean
         }
         Update: {
           auth_uid?: string
+          bet_submitted?: boolean
           connected?: boolean
           game_id?: string
           id?: string
           joined_at?: string
           name?: string
-          team_id?: string | null
+          revealed_card_id?: string | null
+          rounds_won?: number
+          score?: number
+          setup_done?: boolean
         }
         Relationships: [
           {
@@ -212,11 +224,46 @@ export type Database = {
             referencedRelation: "games"
             referencedColumns: ["id"]
           },
+        ]
+      }
+      player_secrets: {
+        Row: {
+          coins: number
+          combination: Json | null
+          condition: Json | null
+          game_id: string
+          hand: Json
+          player_id: string
+        }
+        Insert: {
+          coins?: number
+          combination?: Json | null
+          condition?: Json | null
+          game_id: string
+          hand?: Json
+          player_id: string
+        }
+        Update: {
+          coins?: number
+          combination?: Json | null
+          condition?: Json | null
+          game_id?: string
+          hand?: Json
+          player_id?: string
+        }
+        Relationships: [
           {
-            foreignKeyName: "players_team_id_fkey"
-            columns: ["team_id"]
+            foreignKeyName: "player_secrets_game_id_fkey"
+            columns: ["game_id"]
             isOneToOne: false
-            referencedRelation: "teams"
+            referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "player_secrets_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: true
+            referencedRelation: "players"
             referencedColumns: ["id"]
           },
         ]
@@ -253,92 +300,6 @@ export type Database = {
           },
         ]
       }
-      team_secrets: {
-        Row: {
-          coins: number
-          combination: Json | null
-          condition: Json | null
-          game_id: string
-          hand: Json
-          team_id: string
-        }
-        Insert: {
-          coins?: number
-          combination?: Json | null
-          condition?: Json | null
-          game_id: string
-          hand?: Json
-          team_id: string
-        }
-        Update: {
-          coins?: number
-          combination?: Json | null
-          condition?: Json | null
-          game_id?: string
-          hand?: Json
-          team_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "team_secrets_game_id_fkey"
-            columns: ["game_id"]
-            isOneToOne: false
-            referencedRelation: "games"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "team_secrets_team_id_fkey"
-            columns: ["team_id"]
-            isOneToOne: true
-            referencedRelation: "teams"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      teams: {
-        Row: {
-          bet_submitted: boolean
-          created_at: string
-          game_id: string
-          id: string
-          name: string
-          representative: string | null
-          revealed_card_id: string | null
-          score: number
-          setup_done: boolean
-        }
-        Insert: {
-          bet_submitted?: boolean
-          created_at?: string
-          game_id: string
-          id?: string
-          name: string
-          representative?: string | null
-          revealed_card_id?: string | null
-          score?: number
-          setup_done?: boolean
-        }
-        Update: {
-          bet_submitted?: boolean
-          created_at?: string
-          game_id?: string
-          id?: string
-          name?: string
-          representative?: string | null
-          revealed_card_id?: string | null
-          score?: number
-          setup_done?: boolean
-        }
-        Relationships: [
-          {
-            foreignKeyName: "teams_game_id_fkey"
-            columns: ["game_id"]
-            isOneToOne: false
-            referencedRelation: "games"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
     }
     Views: {
       [_ in never]: never
@@ -347,23 +308,23 @@ export type Database = {
       define_setup: {
         Args: {
           p_combination: Json
+          p_player_id: string
           p_revealed_card_id: string
-          p_team_id: string
         }
         Returns: undefined
       }
       is_game_host: { Args: { g: string }; Returns: boolean }
       is_game_participant: { Args: { g: string }; Returns: boolean }
-      is_team_rep: { Args: { p_team_id: string }; Returns: boolean }
+      is_player_self: { Args: { p_player_id: string }; Returns: boolean }
       join_game: { Args: { p_code: string; p_name: string }; Returns: Json }
-      my_team_id: { Args: { g: string }; Returns: string }
+      my_player_id: { Args: { g: string }; Returns: string }
       submit_bet: {
         Args: {
           p_amount: number
           p_columns: Json
           p_order: Json
+          p_player_id: string
           p_round: number
-          p_team_id: string
           p_tombola: string
         }
         Returns: undefined

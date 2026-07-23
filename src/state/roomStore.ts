@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import {
-  autoAssignTeams,
   clearPersistedRoom,
   createGame,
   joinGame,
@@ -8,17 +7,14 @@ import {
   loadHostDetail,
   loadPersistedRoom,
   persistRoom,
-  loadMyTeamSecret,
+  loadMyPlayerSecret,
   loadSnapshot,
-  renameTeam,
-  setRepresentative,
   startGame,
   subscribeRoom,
   type HostDetail,
   type LobbyGame,
   type LobbyPlayer,
-  type LobbyTeam,
-  type TeamSecret,
+  type PlayerSecret,
 } from '../services/room';
 import * as game from '../services/game';
 import { ensureAnonSession } from '../services/supabase';
@@ -34,8 +30,7 @@ type RoomState = {
   myPlayerId: string | null;
   game: LobbyGame | null;
   players: LobbyPlayer[];
-  teams: LobbyTeam[];
-  mySecret: TeamSecret | null;
+  mySecret: PlayerSecret | null;
   hostDetail: HostDetail | null;
   busy: boolean;
   error: string | null;
@@ -45,9 +40,6 @@ type RoomActions = {
   hostCreate: () => Promise<void>;
   join: (code: string, name: string) => Promise<void>;
   refresh: () => Promise<void>;
-  autoAssign: () => Promise<void>;
-  setRep: (teamId: string, playerAuthUid: string) => Promise<void>;
-  rename: (teamId: string, name: string) => Promise<void>;
   start: () => Promise<void>;
   defineSetup: (combination: Combination, revealedCardId: string) => Promise<void>;
   submitBet: (
@@ -64,10 +56,11 @@ type RoomActions = {
   clearError: () => void;
 };
 
-/** team_id del jugador actual (null si es host o aún sin equipo). */
-function myTeamId(state: RoomState): string | null {
+/** player_id del jugador actual (null si es host o aún no cargó). */
+function myPlayerId(state: RoomState): string | null {
+  if (state.myPlayerId) return state.myPlayerId;
   const me = state.players.find((p) => p.auth_uid === state.myUid);
-  return me?.team_id ?? null;
+  return me?.id ?? null;
 }
 
 let unsub: (() => void) | null = null;
@@ -97,7 +90,6 @@ const initial: RoomState = {
   myPlayerId: null,
   game: null,
   players: [],
-  teams: [],
   mySecret: null,
   hostDetail: null,
   busy: false,
@@ -148,59 +140,26 @@ export const useRoomStore = create<RoomState & RoomActions>((set, get) => ({
     if (!gameId) return;
     try {
       const snap = await loadSnapshot(gameId);
-      const me = snap.players.find((p) => p.auth_uid === get().myUid);
-      const teamId = me?.team_id ?? null;
+      const playerId = myPlayerId({ ...get(), players: snap.players });
       let mySecret = get().mySecret;
-      if (teamId) {
+      if (get().role === 'player' && playerId) {
         try {
-          mySecret = await loadMyTeamSecret(teamId);
+          mySecret = await loadMyPlayerSecret(playerId);
         } catch {
           /* aún sin secretos (antes de iniciar) */
         }
-      } else {
+      } else if (get().role === 'host') {
         mySecret = null;
       }
       let hostDetail = get().hostDetail;
       if (get().role === 'host' && snap.game.status !== 'lobby') {
         try {
-          hostDetail = await loadHostDetail(gameId);
+          hostDetail = await loadHostDetail(gameId, snap.game.round);
         } catch {
           /* ignora */
         }
       }
-      set({ game: snap.game, players: snap.players, teams: snap.teams, mySecret, hostDetail });
-    } catch (e) {
-      set({ error: errMessage(e) });
-    }
-  },
-
-  async autoAssign() {
-    const { gameId } = get();
-    if (!gameId) return;
-    set({ busy: true, error: null });
-    try {
-      await autoAssignTeams(gameId);
-      await get().refresh();
-    } catch (e) {
-      set({ error: errMessage(e) });
-    } finally {
-      set({ busy: false });
-    }
-  },
-
-  async setRep(teamId, playerAuthUid) {
-    try {
-      await setRepresentative(teamId, playerAuthUid);
-      await get().refresh();
-    } catch (e) {
-      set({ error: errMessage(e) });
-    }
-  },
-
-  async rename(teamId, name) {
-    try {
-      await renameTeam(teamId, name);
-      await get().refresh();
+      set({ game: snap.game, players: snap.players, mySecret, hostDetail });
     } catch (e) {
       set({ error: errMessage(e) });
     }
@@ -221,11 +180,11 @@ export const useRoomStore = create<RoomState & RoomActions>((set, get) => ({
   },
 
   async defineSetup(combination, revealedCardId) {
-    const teamId = myTeamId(get());
-    if (!teamId) return;
+    const playerId = myPlayerId(get());
+    if (!playerId) return;
     set({ busy: true, error: null });
     try {
-      await game.defineSetup(teamId, combination, revealedCardId);
+      await game.defineSetup(playerId, combination, revealedCardId);
       await get().refresh();
     } catch (e) {
       set({ error: errMessage(e) });
@@ -235,12 +194,12 @@ export const useRoomStore = create<RoomState & RoomActions>((set, get) => ({
   },
 
   async submitBet(tombola, amount, order, columns) {
-    const teamId = myTeamId(get());
+    const playerId = myPlayerId(get());
     const round = get().game?.round ?? 0;
-    if (!teamId) return;
+    if (!playerId) return;
     set({ busy: true, error: null });
     try {
-      await game.submitBet(teamId, round, tombola, amount, order, columns);
+      await game.submitBet(playerId, round, tombola, amount, order, columns);
       await get().refresh();
     } catch (e) {
       set({ error: errMessage(e) });
@@ -324,10 +283,10 @@ export const useRoomStore = create<RoomState & RoomActions>((set, get) => ({
   },
 
   async leave() {
-    const { myPlayerId } = get();
+    const { myPlayerId: pid } = get();
     stopSync();
     clearPersistedRoom();
-    if (myPlayerId) await leaveGame(myPlayerId).catch(() => {});
+    if (pid) await leaveGame(pid).catch(() => {});
     set({ ...initial });
   },
 

@@ -8,7 +8,7 @@ import {
   lowestFreeRow,
   placeTokens,
 } from '../../engine/board';
-import { FIGURES } from '../../engine/types';
+import { FIGURES, FIGURE_LABEL } from '../../engine/types';
 import type {
   Board as BoardType,
   Card,
@@ -16,7 +16,14 @@ import type {
   Figure,
   Token,
 } from '../../engine/types';
-import type { LobbyTeam } from '../../services/room';
+import type { LobbyPlayer, PlayerSecret } from '../../services/room';
+
+/** Los ids de carta son `${figura}-${n}`; deriva la figura de la carta pública. */
+function figureFromCardId(id: string | null | undefined): Figure | null {
+  if (!id) return null;
+  const f = id.split('-')[0] as Figure;
+  return FIGURES.includes(f) ? f : null;
+}
 
 export function GamePlay() {
   const status = useRoomStore((s) => s.game?.status);
@@ -30,22 +37,37 @@ function Shell({ children }: { children: React.ReactNode }) {
   const round = useRoomStore((s) => s.game?.round);
   const phase = useRoomStore((s) => s.game?.phase);
   const role = useRoomStore((s) => s.role);
+  const mySecret = useRoomStore((s) => s.mySecret);
   const leave = useRoomStore((s) => s.leave);
   const error = useRoomStore((s) => s.error);
   const clearError = useRoomStore((s) => s.clearError);
+  const [cardsOpen, setCardsOpen] = useState(false);
+
   return (
     <div className="min-h-screen bg-base p-4 md:p-6">
+      {cardsOpen && <MyCardsModal onClose={() => setCardsOpen(false)} />}
       <div className="mx-auto max-w-5xl">
-        <header className="mb-4 flex items-center justify-between">
+        <header className="mb-4 flex items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-extrabold text-ink">Mitología · {code}</h1>
             <p className="text-sm text-ink/60">
               {role === 'host' ? 'Moderador' : 'Jugador'} · Ronda {round || '—'} · {phase}
             </p>
           </div>
-          <button type="button" onClick={leave} className="text-sm text-link hover:underline">
-            Salir
-          </button>
+          <div className="flex items-center gap-3">
+            {role === 'player' && mySecret && (
+              <button
+                type="button"
+                onClick={() => setCardsOpen(true)}
+                className="rounded-lg bg-accent px-3 py-1.5 text-sm font-bold text-ink shadow hover:bg-accent-dark"
+              >
+                🃏 Mis cartas
+              </button>
+            )}
+            <button type="button" onClick={leave} className="text-sm text-link hover:underline">
+              Salir
+            </button>
+          </div>
         </header>
         {error && (
           <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm font-semibold text-ink">
@@ -61,18 +83,103 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 // ---- helpers de identidad -------------------------------------------------
 
-function useMyTeam(): LobbyTeam | null {
-  const teams = useRoomStore((s) => s.teams);
+function useMe(): LobbyPlayer | null {
   const players = useRoomStore((s) => s.players);
   const myUid = useRoomStore((s) => s.myUid);
-  const me = players.find((p) => p.auth_uid === myUid);
-  return teams.find((t) => t.id === me?.team_id) ?? null;
+  return players.find((p) => p.auth_uid === myUid) ?? null;
 }
 
-function useIsRep(): boolean {
-  const myTeam = useMyTeam();
+// =====================================================================
+// MIS CARTAS (siempre disponible para el jugador)
+// =====================================================================
+
+function MyCardsModal({ onClose }: { onClose: () => void }) {
+  const mySecret = useRoomStore((s) => s.mySecret);
+  const me = useMe();
+  if (!mySecret) return null;
+  const revealedId = me?.revealed_card_id ?? null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 p-4" onClick={onClose}>
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-xl font-extrabold text-ink">Mis cartas</h2>
+          <button type="button" onClick={onClose} className="rounded-lg px-2 py-1 text-sm font-bold text-ink/60 hover:bg-base">✕</button>
+        </div>
+
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink/50">
+          Tu combinación secreta {mySecret.combination ? '(orden: izquierda → derecha)' : '(aún sin definir)'}
+        </p>
+        <div className="mb-4 flex gap-3">
+          {mySecret.hand.map((c) => {
+            const isRevealed = c.id === revealedId;
+            return (
+              <div key={c.id} className={`relative rounded-xl border-2 p-3 ${isRevealed ? 'border-link bg-link/5' : 'border-ink/10 bg-base'}`}>
+                <TokenIcon figure={c.figure} size="lg" showLabel />
+                {isRevealed && (
+                  <span className="absolute -top-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-link px-2 py-0.5 text-[10px] font-bold text-white">
+                    Pública
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {mySecret.combination && (
+          <div className="mb-4">
+            <div className="mb-1 text-xs font-semibold uppercase text-ink/50">Orden de tu combinación</div>
+            <div className="flex gap-2">
+              {mySecret.combination.map((f, i) => <TokenIcon key={i} figure={f} size="sm" />)}
+            </div>
+          </div>
+        )}
+
+        <div className="rounded-lg border border-link/20 bg-link/5 p-3">
+          <div className="text-xs font-semibold uppercase text-link">Tu condición secreta</div>
+          <div className="mt-1 text-sm font-bold text-ink">{mySecret.condition.label}</div>
+          <p className="mt-1 text-xs text-ink/60">Si se cumple al final, tu puntaje se multiplica ×2.</p>
+        </div>
+
+        <p className="mt-3 text-center text-sm text-ink/70">Monedas disponibles: <strong>{mySecret.coins} 🪙</strong></p>
+        <p className="mt-1 text-center text-xs text-ink/50">Solo tú y el moderador pueden ver esta información.</p>
+      </div>
+    </div>
+  );
+}
+
+// =====================================================================
+// CARTAS PÚBLICAS (visibles para todos)
+// =====================================================================
+
+function PublicCards() {
+  const players = useRoomStore((s) => s.players);
   const myUid = useRoomStore((s) => s.myUid);
-  return !!myTeam && myTeam.representative === myUid;
+  const connected = players.filter((p) => p.connected);
+  return (
+    <div className="rounded-xl border border-ink/10 bg-white p-4">
+      <h3 className="mb-2 font-bold text-ink">Cartas públicas</h3>
+      <div className="flex flex-wrap gap-2">
+        {connected.map((p) => {
+          const fig = figureFromCardId(p.revealed_card_id);
+          const isMe = p.auth_uid === myUid;
+          return (
+            <div key={p.id} className={`flex items-center gap-2 rounded-lg border p-2 ${isMe ? 'border-accent bg-accent/10' : 'border-ink/10 bg-base'}`}>
+              {fig ? <TokenIcon figure={fig} size="sm" /> : <div className="h-8 w-8 rounded-full bg-ink/10" />}
+              <div>
+                <div className="text-sm font-semibold text-ink">
+                  {p.name}
+                  {isMe && <span className="text-ink/50"> (tú)</span>}
+                </div>
+                <div className="text-[11px] text-ink/60">
+                  {fig ? FIGURE_LABEL[fig] : 'sin revelar'} · 🏆 {p.rounds_won}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 // =====================================================================
@@ -82,80 +189,75 @@ function useIsRep(): boolean {
 function SetupView() {
   const role = useRoomStore((s) => s.role);
   if (role === 'host') return <HostSetup />;
-  return <TeamSetup />;
+  return <PlayerSetup />;
 }
 
 function HostSetup() {
-  const teams = useRoomStore((s) => s.teams);
+  const players = useRoomStore((s) => s.players);
   const hostStart = useRoomStore((s) => s.hostStart);
   const busy = useRoomStore((s) => s.busy);
-  const allReady = teams.length >= 2 && teams.every((t) => t.setup_done);
+  const connected = players.filter((p) => p.connected);
+  const allReady = connected.length >= 2 && connected.every((p) => p.setup_done);
   return (
-    <div className="rounded-2xl border border-ink/10 bg-white p-6">
-      <h2 className="mb-1 text-xl font-bold text-ink">Configuración de equipos</h2>
-      <p className="mb-4 text-sm text-ink/70">
-        Cada representante define la combinación y la carta pública de su equipo.
-      </p>
-      <ul className="mb-4 space-y-2">
-        {teams.map((t) => (
-          <li key={t.id} className="flex items-center justify-between rounded-lg bg-base px-3 py-2">
-            <span className="font-semibold text-ink">{t.name}</span>
-            <span className={`text-sm font-bold ${t.setup_done ? 'text-success' : 'text-ink/40'}`}>
-              {t.setup_done ? '✓ Listo' : 'Definiendo…'}
-            </span>
-          </li>
-        ))}
-      </ul>
-      <button
-        type="button"
-        disabled={!allReady || busy}
-        onClick={hostStart}
-        className="mb-4 w-full rounded-lg bg-accent py-3 font-bold text-ink hover:bg-accent-dark disabled:opacity-50"
-      >
-        Iniciar rondas
-      </button>
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-ink/10 bg-white p-6">
+        <h2 className="mb-1 text-xl font-bold text-ink">Preparación de jugadores</h2>
+        <p className="mb-4 text-sm text-ink/70">
+          Cada jugador define su combinación y su carta pública desde su teléfono.
+        </p>
+        <ul className="mb-4 space-y-2">
+          {connected.map((p) => (
+            <li key={p.id} className="flex items-center justify-between rounded-lg bg-base px-3 py-2">
+              <span className="font-semibold text-ink">{p.name}</span>
+              <span className={`text-sm font-bold ${p.setup_done ? 'text-success' : 'text-ink/40'}`}>
+                {p.setup_done ? '✓ Listo' : 'Definiendo…'}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <button
+          type="button"
+          disabled={!allReady || busy}
+          onClick={hostStart}
+          className="w-full rounded-lg bg-accent py-3 font-bold text-ink hover:bg-accent-dark disabled:opacity-50"
+        >
+          Iniciar rondas
+        </button>
+      </div>
       <ModeratorPanel />
     </div>
   );
 }
 
-function TeamSetup() {
-  const isRep = useIsRep();
-  const myTeam = useMyTeam();
+function PlayerSetup() {
+  const me = useMe();
   const mySecret = useRoomStore((s) => s.mySecret);
   const defineSetup = useRoomStore((s) => s.defineSetup);
   const busy = useRoomStore((s) => s.busy);
   const [selected, setSelected] = useState<Card[]>([]);
   const [revealed, setRevealed] = useState<string | null>(null);
 
-  if (!myTeam || !mySecret) {
-    return <Waiting text="Cargando tu equipo…" />;
+  if (!me || !mySecret) {
+    return <Waiting text="Cargando tus cartas…" />;
   }
 
-  if (myTeam.setup_done) {
+  if (me.setup_done) {
     return (
       <div className="rounded-2xl border border-ink/10 bg-white p-6 text-center">
         <div className="text-3xl">✓</div>
         <h2 className="text-lg font-bold text-ink">Combinación definida</h2>
         <p className="mt-1 text-sm text-ink/70">Esperando a que el moderador inicie las rondas.</p>
+        <div className="mt-4 text-left"><ConditionCard /></div>
       </div>
-    );
-  }
-
-  if (!isRep) {
-    return (
-      <Waiting text={`Tu representante está definiendo la combinación de ${myTeam.name}.`}>
-        <ConditionCard />
-      </Waiting>
     );
   }
 
   const hand = mySecret.hand;
   return (
     <div className="rounded-2xl border border-ink/10 bg-white p-6">
-      <h2 className="mb-1 text-xl font-bold text-ink">Define la combinación de {myTeam.name}</h2>
+      <h2 className="mb-1 text-xl font-bold text-ink">Define tu combinación</h2>
       <p className="mb-4 text-sm text-ink/70">
-        Ordena las 3 cartas (el orden importa) y elige cuál mostrar públicamente.
+        Ordena tus 3 cartas (el orden importa) y elige cuál mostrar públicamente.
       </p>
       <ConditionCard />
       <div className="my-4">
@@ -195,6 +297,22 @@ function TeamSetup() {
   );
 }
 
+function ConditionCard() {
+  const mySecret = useRoomStore((s) => s.mySecret);
+  if (!mySecret) return null;
+  return (
+    <div className="rounded-lg border border-link/20 bg-link/5 p-3">
+      <div className="text-xs font-semibold uppercase text-link">Tu condición secreta</div>
+      <div className="mt-1 text-sm font-bold text-ink">{mySecret.condition.label}</div>
+      <p className="mt-1 text-xs text-ink/60">Si se cumple al final, tu puntaje se multiplica ×2.</p>
+    </div>
+  );
+}
+
+// =====================================================================
+// PANEL DEL MODERADOR (secretos + apuestas en vivo + historial)
+// =====================================================================
+
 function countFigures(tokens: Token[]): Record<Figure, number> {
   const c = Object.fromEntries(FIGURES.map((f) => [f, 0])) as Record<Figure, number>;
   for (const t of tokens) c[t.figure] += 1;
@@ -203,12 +321,14 @@ function countFigures(tokens: Token[]): Record<Figure, number> {
 
 function ModeratorPanel() {
   const detail = useRoomStore((s) => s.hostDetail);
-  const teams = useRoomStore((s) => s.teams);
   const players = useRoomStore((s) => s.players);
+  const phase = useRoomStore((s) => s.game?.phase);
+  const round = useRoomStore((s) => s.game?.round) ?? 0;
   const [open, setOpen] = useState(true);
   if (!detail) return null;
   const countsA = countFigures(detail.tombolaA);
   const countsB = countFigures(detail.tombolaB);
+  const nameOf = (playerId: string) => players.find((p) => p.id === playerId)?.name ?? '—';
 
   return (
     <div className="rounded-xl border border-link/20 bg-link/5 p-4">
@@ -222,10 +342,44 @@ function ModeratorPanel() {
       </button>
       {open && (
         <div className="space-y-4">
-          <div>
-            <div className="mb-1 text-xs font-semibold uppercase text-ink/60">
-              Fichas restantes en tómbolas
+          {/* Apuestas en vivo de la ronda actual */}
+          {(phase === 'BETTING' || phase === 'ROUND_END') && (
+            <div>
+              <div className="mb-1 text-xs font-semibold uppercase text-ink/60">
+                Apuestas en vivo · Ronda {round}
+              </div>
+              {detail.currentBets.length === 0 ? (
+                <p className="text-xs text-ink/50">Aún no hay apuestas registradas.</p>
+              ) : (
+                <div className="overflow-x-auto rounded-lg bg-white">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs text-ink/60">
+                        <th className="p-2">Jugador</th>
+                        <th className="p-2">Tómbola</th>
+                        <th className="p-2">Apuesta</th>
+                        <th className="p-2">Columnas</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.currentBets.map((b) => (
+                        <tr key={b.player_id} className="border-t border-ink/5">
+                          <td className="p-2 font-semibold text-ink">{nameOf(b.player_id)}</td>
+                          <td className="p-2">{b.tombola}</td>
+                          <td className="p-2">{b.amount} 🪙</td>
+                          <td className="p-2 font-mono text-xs">{b.columns.map((c) => c + 1).join(', ')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
+          )}
+
+          {/* Fichas restantes en tómbolas */}
+          <div>
+            <div className="mb-1 text-xs font-semibold uppercase text-ink/60">Fichas restantes en tómbolas</div>
             <div className="grid grid-cols-2 gap-2">
               {(['A', 'B'] as const).map((id) => {
                 const counts = id === 'A' ? countsA : countsB;
@@ -250,18 +404,18 @@ function ModeratorPanel() {
             </div>
           </div>
 
+          {/* Info secreta por jugador */}
           <div>
-            <div className="mb-1 text-xs font-semibold uppercase text-ink/60">Equipos (información secreta)</div>
+            <div className="mb-1 text-xs font-semibold uppercase text-ink/60">Jugadores (información secreta)</div>
             <div className="space-y-2">
-              {teams.map((t) => {
-                const sec = detail.secrets.find((s) => s.team_id === t.id);
-                const members = players.filter((p) => p.team_id === t.id).length;
+              {players.filter((p) => p.connected).map((p) => {
+                const sec = detail.secrets.find((s) => s.player_id === p.id);
                 return (
-                  <div key={t.id} className="rounded-lg bg-white p-2 text-sm">
+                  <div key={p.id} className="rounded-lg bg-white p-2 text-sm">
                     <div className="flex items-center justify-between">
-                      <span className="font-bold text-ink">{t.name}</span>
+                      <span className="font-bold text-ink">{p.name}</span>
                       <span className="font-mono text-ink/70">
-                        {sec?.coins ?? '—'} 🪙 · {members} int. {t.bet_submitted ? '· ✓ apostó' : ''}
+                        {sec?.coins ?? '—'} 🪙 · 🏆 {p.rounds_won} {p.bet_submitted ? '· ✓ apostó' : ''}
                       </span>
                     </div>
                     <div className="mt-1 flex items-center gap-2">
@@ -276,20 +430,43 @@ function ModeratorPanel() {
               })}
             </div>
           </div>
+
+          {/* Historial de rondas resueltas */}
+          {detail.history.length > 0 && (
+            <div>
+              <div className="mb-1 text-xs font-semibold uppercase text-ink/60">
+                Historial de rondas ({detail.history.length})
+              </div>
+              <div className="space-y-2">
+                {detail.history.map((r) => (
+                  <div key={r.round} className="rounded-lg bg-white p-2">
+                    <div className="mb-1 flex items-center justify-between text-sm">
+                      <span className="font-bold text-ink">Ronda {r.round}</span>
+                      <span className={`rounded-full px-2 py-0.5 text-xs ${r.winnerPlayerId ? 'bg-success/20 text-success' : 'bg-danger/20 text-danger'}`}>
+                        {r.winnerPlayerId ? `Ganó ${nameOf(r.winnerPlayerId)} · Tómbola ${r.winnerTombola}` : 'Empate (repetida)'}
+                      </span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <tbody>
+                          {r.bets.map((b) => (
+                            <tr key={b.player_id} className={b.player_id === r.winnerPlayerId ? 'font-semibold text-ink' : 'text-ink/70'}>
+                              <td className="py-0.5 pr-2">{nameOf(b.player_id)}</td>
+                              <td className="pr-2">Tómbola {b.tombola}</td>
+                              <td className="pr-2">{b.amount} 🪙</td>
+                              <td className="font-mono">{b.columns.map((c) => c + 1).join(', ')}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
-    </div>
-  );
-}
-
-function ConditionCard() {
-  const mySecret = useRoomStore((s) => s.mySecret);
-  if (!mySecret) return null;
-  return (
-    <div className="rounded-lg border border-link/20 bg-link/5 p-3">
-      <div className="text-xs font-semibold uppercase text-link">Condición secreta del equipo</div>
-      <div className="mt-1 text-sm font-bold text-ink">{mySecret.condition.label}</div>
-      <p className="mt-1 text-xs text-ink/60">Si se cumple al final, el puntaje del equipo se multiplica ×2.</p>
     </div>
   );
 }
@@ -302,22 +479,29 @@ function PlayingView() {
   const role = useRoomStore((s) => s.role);
   const board = useRoomStore((s) => s.game?.board) ?? [];
   const lastPlacements = useRoomStore((s) => s.game?.last_result?.kind === 'winner');
+  const me = useMe();
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_auto]">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_360px]">
       <div className="order-2 lg:order-1">{role === 'host' ? <HostRound /> : <PlayerRound />}</div>
-      <aside className="order-1 lg:order-2 lg:w-[360px]">
+      <aside className="order-1 space-y-4 lg:order-2">
         <div className="rounded-xl border border-ink/10 bg-white p-4">
-          <h3 className="mb-2 font-bold text-ink">Tablero</h3>
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="font-bold text-ink">Tablero</h3>
+            {role === 'player' && me && (
+              <span className="rounded-full bg-accent/20 px-2 py-0.5 text-xs font-bold text-ink">
+                🏆 {me.rounds_won} rondas ganadas
+              </span>
+            )}
+          </div>
           <div className="flex justify-center">
             <Board board={board as BoardType} />
           </div>
           {lastPlacements && (
-            <p className="mt-2 text-center text-xs text-ink/50">
-              Acomodo de la última ronda aplicado.
-            </p>
+            <p className="mt-2 text-center text-xs text-ink/50">Acomodo de la última ronda aplicado.</p>
           )}
         </div>
+        <PublicCards />
       </aside>
     </div>
   );
@@ -344,15 +528,16 @@ function DrawDisplay() {
 
 function HostRound() {
   const phase = useRoomStore((s) => s.game?.phase);
-  const teams = useRoomStore((s) => s.teams);
+  const players = useRoomStore((s) => s.players);
   const lastResult = useRoomStore((s) => s.game?.last_result);
   const hostResolve = useRoomStore((s) => s.hostResolve);
   const hostAdvance = useRoomStore((s) => s.hostAdvance);
   const busy = useRoomStore((s) => s.busy);
   const round = useRoomStore((s) => s.game?.round) ?? 0;
 
-  const submitted = teams.filter((t) => t.bet_submitted).length;
-  const allIn = submitted === teams.length;
+  const connected = players.filter((p) => p.connected);
+  const submitted = connected.filter((p) => p.bet_submitted).length;
+  const allIn = connected.length > 0 && submitted === connected.length;
 
   return (
     <div className="space-y-4">
@@ -364,15 +549,15 @@ function HostRound() {
       {phase === 'BETTING' && (
         <div className="rounded-xl border border-ink/10 bg-white p-4">
           <p className="mb-3 text-sm font-semibold text-ink">
-            Apuestas recibidas: {submitted} / {teams.length}
+            Apuestas recibidas: {submitted} / {connected.length}
           </p>
           <div className="mb-3 flex flex-wrap gap-2">
-            {teams.map((t) => (
+            {connected.map((p) => (
               <span
-                key={t.id}
-                className={`rounded-full px-3 py-1 text-sm ${t.bet_submitted ? 'bg-success/15 text-success' : 'bg-base text-ink/50'}`}
+                key={p.id}
+                className={`rounded-full px-3 py-1 text-sm ${p.bet_submitted ? 'bg-success/15 text-success' : 'bg-base text-ink/50'}`}
               >
-                {t.name} {t.bet_submitted ? '✓' : '…'}
+                {p.name} {p.bet_submitted ? '✓' : '…'}
               </span>
             ))}
           </div>
@@ -412,8 +597,7 @@ function HostRound() {
 
 function PlayerRound() {
   const phase = useRoomStore((s) => s.game?.phase);
-  const isRep = useIsRep();
-  const myTeam = useMyTeam();
+  const me = useMe();
 
   if (phase === 'ROUND_END') {
     return (
@@ -424,24 +608,15 @@ function PlayerRound() {
     );
   }
 
-  if (!isRep) {
+  if (me?.bet_submitted) {
     return (
-      <Waiting text={`Tu representante (${myTeam?.name ?? ''}) está decidiendo la apuesta.`}>
-        <DrawDisplay />
-        <div className="mt-3"><MyCardsPanel /></div>
-      </Waiting>
-    );
-  }
-
-  if (myTeam?.bet_submitted) {
-    return (
-      <Waiting text="Apuesta enviada. Esperando a los demás equipos.">
+      <Waiting text="Apuesta enviada. Esperando a los demás jugadores.">
         <DrawDisplay />
       </Waiting>
     );
   }
 
-  return <RepBet />;
+  return <PlayerBet />;
 }
 
 function ResultBanner() {
@@ -466,7 +641,7 @@ function ResultBanner() {
   );
 }
 
-// ---- apuesta + colocación del representante --------------------------------
+// ---- apuesta + colocación del jugador --------------------------------------
 
 type Draft = {
   tombola: 'A' | 'B';
@@ -489,10 +664,10 @@ function buildPreview(board: BoardType, figures: Figure[], columns: (number | nu
   return { previewBoard: pv, placements };
 }
 
-function RepBet() {
+function PlayerBet() {
   const draw = useRoomStore((s) => s.game?.current_draw);
   const board = (useRoomStore((s) => s.game?.board) ?? []) as BoardType;
-  const mySecret = useRoomStore((s) => s.mySecret);
+  const mySecret = useRoomStore((s) => s.mySecret) as PlayerSecret | null;
   const submitBet = useRoomStore((s) => s.submitBet);
   const busy = useRoomStore((s) => s.busy);
   const coins = mySecret?.coins ?? 0;
@@ -514,6 +689,8 @@ function RepBet() {
     [board, figures, draft.columns],
   );
   const nextIndex = draft.columns.findIndex((c) => c === null);
+  const lastIndex = draft.columns.reduce<number>((last, col, index) => (col === null ? last : index), -1);
+  const anyPlaced = lastIndex !== -1;
   const clickable = nextIndex === -1 ? [] : availableColumns(previewBoard);
   const ready = draft.columns.every((c) => c !== null);
   const validation = ready
@@ -538,6 +715,12 @@ function RepBet() {
     [columns[slot], columns[target]] = [columns[target], columns[slot]];
     setDraft({ ...draft, order, columns });
   }
+  function undoLast() {
+    if (lastIndex === -1) return;
+    const columns = draft.columns.slice();
+    columns[lastIndex] = null;
+    setDraft({ ...draft, columns });
+  }
   function reset() {
     setDraft({ ...draft, columns: [null, null, null, null] });
   }
@@ -549,7 +732,7 @@ function RepBet() {
       <div className="rounded-xl border border-ink/10 bg-white p-4">
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-lg font-bold text-ink">Tu apuesta</h2>
-          <span className="text-sm text-ink/70">{coins} 🪙 del equipo</span>
+          <span className="text-sm text-ink/70">{coins} 🪙</span>
         </div>
         <DrawDisplay />
       </div>
@@ -606,7 +789,24 @@ function RepBet() {
         <div className="flex justify-center overflow-x-auto">
           <Board board={board} previewPlacements={placements} onColumnClick={clickCol} clickableColumns={clickable} compact />
         </div>
-        <button type="button" onClick={reset} className="mt-2 w-full rounded-lg border border-ink/10 bg-base py-2 text-sm font-semibold text-ink">Limpiar</button>
+        <div className="mt-2 flex gap-2">
+          <button
+            type="button"
+            onClick={undoLast}
+            disabled={!anyPlaced}
+            className="flex-1 rounded-lg border border-ink/10 bg-base py-2 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-40 hover:border-link"
+          >
+            Deshacer
+          </button>
+          <button
+            type="button"
+            onClick={reset}
+            disabled={!anyPlaced}
+            className="flex-1 rounded-lg border border-ink/10 bg-base py-2 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-40 hover:border-link"
+          >
+            Limpiar
+          </button>
+        </div>
       </div>
 
       {validation && !validation.ok && (
@@ -620,22 +820,6 @@ function RepBet() {
       >
         Confirmar apuesta
       </button>
-    </div>
-  );
-}
-
-function MyCardsPanel() {
-  const mySecret = useRoomStore((s) => s.mySecret);
-  if (!mySecret) return null;
-  return (
-    <div className="rounded-xl border border-ink/10 bg-white p-3">
-      <div className="mb-1 text-xs font-semibold uppercase text-ink/50">Combinación del equipo</div>
-      <div className="flex gap-2">
-        {mySecret.combination
-          ? mySecret.combination.map((f, i) => <TokenIcon key={i} figure={f} size="sm" />)
-          : <span className="text-sm text-ink/50">Sin definir</span>}
-      </div>
-      <div className="mt-2 text-xs text-ink/60">Condición: {mySecret.condition.label}</div>
     </div>
   );
 }
@@ -656,30 +840,56 @@ function Waiting({ text, children }: { text: string; children?: React.ReactNode 
 
 function ResultsView() {
   const scores = useRoomStore((s) => s.game?.final_scores) ?? [];
+  const board = (useRoomStore((s) => s.game?.board) ?? []) as BoardType;
+  const players = useRoomStore((s) => s.players);
+  const myUid = useRoomStore((s) => s.myUid);
   const leave = useRoomStore((s) => s.leave);
+  const roundsWonOf = (playerId: string) => players.find((p) => p.id === playerId)?.rounds_won ?? 0;
+  const authOf = (playerId: string) => players.find((p) => p.id === playerId)?.auth_uid;
+
   return (
-    <div className="rounded-2xl border border-ink/10 bg-white p-6">
-      <h2 className="mb-4 text-2xl font-extrabold text-ink">Resultados finales</h2>
-      <ol className="space-y-2">
-        {scores.map((s, i) => (
-          <li key={s.teamId} className={`flex items-center justify-between rounded-lg p-3 ${i === 0 ? 'bg-accent/20 shadow-glow' : 'bg-base'}`}>
-            <div className="flex items-center gap-3">
-              <span className="w-6 font-bold text-ink">{i + 1}.</span>
-              <span className="font-semibold text-ink">{s.name}</span>
-              {s.conditionMet && (
-                <span className="rounded-full bg-success/20 px-2 py-0.5 text-xs text-success">Condición ×2</span>
-              )}
-            </div>
-            <div className="text-right">
-              <div className="text-2xl font-extrabold text-ink">{s.total}</div>
-              <div className="text-xs text-ink/60">{s.raw} combos × {s.multiplier}</div>
-            </div>
-          </li>
-        ))}
-      </ol>
-      <button type="button" onClick={leave} className="mt-6 w-full rounded-lg bg-link py-3 font-bold text-white">
-        Volver al inicio
-      </button>
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_360px]">
+      <div className="order-2 rounded-2xl border border-ink/10 bg-white p-6 lg:order-1">
+        <h2 className="mb-4 text-2xl font-extrabold text-ink">Resultados finales</h2>
+        <ol className="space-y-2">
+          {scores.map((s, i) => {
+            const isMe = authOf(s.playerId) === myUid;
+            return (
+              <li key={s.playerId} className={`flex items-center justify-between rounded-lg p-3 ${i === 0 ? 'bg-accent/20 shadow-glow' : isMe ? 'bg-link/10' : 'bg-base'}`}>
+                <div className="flex items-center gap-3">
+                  <span className="w-6 font-bold text-ink">{i + 1}.</span>
+                  <span className="font-semibold text-ink">
+                    {s.name}
+                    {isMe && <span className="text-ink/50"> (tú)</span>}
+                  </span>
+                  {s.conditionMet && (
+                    <span className="rounded-full bg-success/20 px-2 py-0.5 text-xs text-success">Condición ×2</span>
+                  )}
+                  <span className="text-xs text-ink/50">🏆 {roundsWonOf(s.playerId)}</span>
+                </div>
+                <div className="text-right">
+                  <div className="text-2xl font-extrabold text-ink">{s.total}</div>
+                  <div className="text-xs text-ink/60">{s.raw} combos × {s.multiplier}</div>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+        <button type="button" onClick={leave} className="mt-6 w-full rounded-lg bg-link py-3 font-bold text-white">
+          Volver al inicio
+        </button>
+      </div>
+      <aside className="order-1 lg:order-2">
+        <div className="rounded-xl border border-ink/10 bg-white p-4">
+          <h3 className="mb-2 font-bold text-ink">Tablero final</h3>
+          <div className="flex justify-center">
+            <Board board={board} />
+          </div>
+          <p className="mt-2 text-center text-xs text-ink/50">
+            Así quedó el tablero tras las 5 rondas.
+          </p>
+        </div>
+      </aside>
     </div>
   );
 }

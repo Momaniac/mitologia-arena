@@ -7,7 +7,7 @@ import { rawScore } from '../engine/scoring';
 import { evaluateCondition } from '../engine/conditions';
 import { makeRng } from '../engine/rng';
 import type { Bet, Board, Combination, Condition, Token } from '../engine/types';
-import type { RoundResultPublic, TeamScore } from './room';
+import type { RoundResultPublic, PlayerScore } from './room';
 
 const TOTAL_ROUNDS = 5;
 
@@ -24,16 +24,16 @@ async function loadPrivate(gameId: string): Promise<PrivateState> {
 }
 
 // ---------------------------------------------------------------------------
-// Representante
+// Jugador
 // ---------------------------------------------------------------------------
 
 export async function defineSetup(
-  teamId: string,
+  playerId: string,
   combination: Combination,
   revealedCardId: string,
 ): Promise<void> {
   const { error } = await supabase.rpc('define_setup', {
-    p_team_id: teamId,
+    p_player_id: playerId,
     p_combination: combination as unknown as Json,
     p_revealed_card_id: revealedCardId,
   });
@@ -41,7 +41,7 @@ export async function defineSetup(
 }
 
 export async function submitBet(
-  teamId: string,
+  playerId: string,
   round: number,
   tombola: 'A' | 'B',
   amount: number,
@@ -49,7 +49,7 @@ export async function submitBet(
   columns: number[],
 ): Promise<void> {
   const { error } = await supabase.rpc('submit_bet', {
-    p_team_id: teamId,
+    p_player_id: playerId,
     p_round: round,
     p_tombola: tombola,
     p_amount: amount,
@@ -77,7 +77,7 @@ export async function drawRound(gameId: string, round: number): Promise<void> {
       tombola_b: b.remaining as unknown as Json,
     })
     .eq('game_id', gameId);
-  await supabase.from('teams').update({ bet_submitted: false }).eq('game_id', gameId);
+  await supabase.from('players').update({ bet_submitted: false }).eq('game_id', gameId);
   await supabase.from('bets').delete().eq('game_id', gameId).eq('round', round);
   await supabase
     .from('games')
@@ -97,15 +97,15 @@ export async function hostStartRounds(gameId: string): Promise<void> {
   await drawRound(gameId, 1);
 }
 
-async function deductCoins(bets: { team_id: string; amount: number }[]): Promise<void> {
+async function deductCoins(bets: { player_id: string; amount: number }[]): Promise<void> {
   for (const b of bets) {
     const { data } = await supabase
-      .from('team_secrets')
+      .from('player_secrets')
       .select('coins')
-      .eq('team_id', b.team_id)
+      .eq('player_id', b.player_id)
       .single();
     const next = Math.max(0, (data?.coins ?? 0) - b.amount);
-    await supabase.from('team_secrets').update({ coins: next }).eq('team_id', b.team_id);
+    await supabase.from('player_secrets').update({ coins: next }).eq('player_id', b.player_id);
   }
 }
 
@@ -123,13 +123,13 @@ export async function resolveRound(gameId: string): Promise<void> {
 
   const { data: betsRows, error: be } = await supabase
     .from('bets')
-    .select('team_id, tombola, amount, order, columns')
+    .select('player_id, tombola, amount, order, columns')
     .eq('game_id', gameId)
     .eq('round', round);
   if (be) throw be;
 
   const bets: Bet[] = (betsRows ?? []).map((b) => ({
-    playerId: b.team_id as string,
+    playerId: b.player_id as string,
     tombola: b.tombola as 'A' | 'B',
     amount: b.amount as number,
     order: b.order as unknown as [number, number, number, number],
@@ -155,14 +155,27 @@ export async function resolveRound(gameId: string): Promise<void> {
     const placements = place.ok ? place.placements : [];
 
     await deductCoins(
-      bets.map((b) => ({ team_id: b.playerId, amount: b.amount })),
+      bets.map((b) => ({ player_id: b.playerId, amount: b.amount })),
     );
+
+    // Cuenta pública de rondas ganadas por el ganador.
+    {
+      const { data: w } = await supabase
+        .from('players')
+        .select('rounds_won')
+        .eq('id', resolution.winnerPlayerId)
+        .single();
+      await supabase
+        .from('players')
+        .update({ rounds_won: (w?.rounds_won ?? 0) + 1 })
+        .eq('id', resolution.winnerPlayerId);
+    }
 
     await supabase.from('round_history').insert({
       game_id: gameId,
       round,
       payload: {
-        winnerTeamId: resolution.winnerPlayerId,
+        winnerPlayerId: resolution.winnerPlayerId,
         winnerTombola: resolution.winnerTombola,
         totals,
         bets: betsRows,
@@ -215,7 +228,7 @@ export async function advanceRound(gameId: string): Promise<void> {
 
   if (lr?.kind === 'void') {
     // Empate: repetir MISMA ronda con las mismas fichas (no se re-sortea).
-    await supabase.from('teams').update({ bet_submitted: false }).eq('game_id', gameId);
+    await supabase.from('players').update({ bet_submitted: false }).eq('game_id', gameId);
     await supabase.from('bets').delete().eq('game_id', gameId).eq('round', g.round);
     await supabase
       .from('games')
@@ -235,23 +248,23 @@ export async function advanceRound(gameId: string): Promise<void> {
 export async function computeScores(gameId: string): Promise<void> {
   const { data: g } = await supabase.from('games').select('board').eq('id', gameId).single();
   const board = (g?.board ?? []) as unknown as Board;
-  const { data: teams } = await supabase.from('teams').select('id, name').eq('game_id', gameId);
+  const { data: players } = await supabase.from('players').select('id, name').eq('game_id', gameId);
   const { data: secrets } = await supabase
-    .from('team_secrets')
-    .select('team_id, combination, condition')
+    .from('player_secrets')
+    .select('player_id, combination, condition')
     .eq('game_id', gameId);
 
-  const scores: TeamScore[] = (teams ?? [])
-    .map((t) => {
-      const sec = (secrets ?? []).find((s) => s.team_id === t.id);
+  const scores: PlayerScore[] = (players ?? [])
+    .map((p) => {
+      const sec = (secrets ?? []).find((s) => s.player_id === p.id);
       const combo = sec?.combination as unknown as Combination | null;
       const cond = sec?.condition as unknown as Condition | undefined;
       const raw = combo ? rawScore(board, combo) : 0;
       const met = cond ? evaluateCondition(board, cond) : false;
       const multiplier: 1 | 2 = met ? 2 : 1;
       return {
-        teamId: t.id,
-        name: t.name,
+        playerId: p.id,
+        name: p.name,
         raw,
         conditionMet: met,
         multiplier,
@@ -261,7 +274,7 @@ export async function computeScores(gameId: string): Promise<void> {
     .sort((a, b) => b.total - a.total);
 
   for (const s of scores) {
-    await supabase.from('teams').update({ score: s.total }).eq('id', s.teamId);
+    await supabase.from('players').update({ score: s.total }).eq('id', s.playerId);
   }
   await supabase
     .from('games')

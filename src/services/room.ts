@@ -2,7 +2,7 @@ import { supabase, ensureAnonSession } from './supabase';
 import type { Json } from './database.types';
 import { emptyBoard } from '../engine/board';
 import { buildTombolas } from '../engine/tombolas';
-import { dealHands, handToCombination } from '../engine/deck';
+import { dealHandsIndependent, handToCombination } from '../engine/deck';
 import { assignUniqueConditions } from '../engine/conditions';
 import { makeRng } from '../engine/rng';
 import type {
@@ -21,8 +21,8 @@ export type RoundResultPublic = {
   reason?: string;
 };
 
-export type TeamScore = {
-  teamId: string;
+export type PlayerScore = {
+  playerId: string;
   name: string;
   raw: number;
   conditionMet: boolean;
@@ -30,8 +30,8 @@ export type TeamScore = {
   total: number;
 };
 
-export type TeamSecret = {
-  team_id: string;
+export type PlayerSecret = {
+  player_id: string;
   hand: Card[];
   combination: Combination | null;
   condition: Condition;
@@ -61,37 +61,33 @@ export type LobbyGame = {
   current_draw: { A: Token[]; B: Token[] } | null;
   bet_totals: { A: number; B: number } | null;
   last_result: RoundResultPublic | null;
-  final_scores: TeamScore[] | null;
+  final_scores: PlayerScore[] | null;
 };
 
 export type LobbyPlayer = {
   id: string;
   game_id: string;
-  team_id: string | null;
   auth_uid: string;
   name: string;
   connected: boolean;
-};
-
-export type LobbyTeam = {
-  id: string;
-  game_id: string;
-  name: string;
+  revealed_card_id: string | null;
   score: number;
-  representative: string | null;
-  bet_submitted: boolean;
+  rounds_won: number;
   setup_done: boolean;
+  bet_submitted: boolean;
 };
 
 export type RoomSnapshot = {
   game: LobbyGame;
   players: LobbyPlayer[];
-  teams: LobbyTeam[];
 };
 
 function isUniqueViolation(error: { code?: string } | null): boolean {
   return error?.code === '23505';
 }
+
+const PLAYER_COLS =
+  'id, game_id, auth_uid, name, connected, revealed_card_id, score, rounds_won, setup_done, bet_submitted';
 
 /** Crea una sala como host. Devuelve gameId, code y el uid del host. */
 export async function createGame(): Promise<{
@@ -108,7 +104,7 @@ export async function createGame(): Promise<{
         code,
         host_uid: uid,
         status: 'lobby',
-        mode: 'teams',
+        mode: 'individual',
         phase: 'LOBBY',
         round: 0,
         board: emptyBoard() as unknown as Json,
@@ -150,67 +146,135 @@ export async function joinGame(
   return { gameId: row.game_id, playerId: row.player_id, uid };
 }
 
-/** Carga una foto completa del lobby. */
+/** Carga una foto completa del lobby (partida + jugadores). */
 export async function loadSnapshot(gameId: string): Promise<RoomSnapshot> {
-  const [{ data: game, error: ge }, { data: players, error: pe }, { data: teams, error: te }] =
+  const [{ data: game, error: ge }, { data: players, error: pe }] =
     await Promise.all([
-      supabase.from('games').select('id, code, host_uid, status, mode, phase, round, board, current_draw, bet_totals, last_result, final_scores').eq('id', gameId).single(),
-      supabase.from('players').select('id, game_id, team_id, auth_uid, name, connected').eq('game_id', gameId).order('joined_at'),
-      supabase.from('teams').select('id, game_id, name, score, representative, bet_submitted, setup_done').eq('game_id', gameId).order('created_at'),
+      supabase
+        .from('games')
+        .select(
+          'id, code, host_uid, status, mode, phase, round, board, current_draw, bet_totals, last_result, final_scores',
+        )
+        .eq('id', gameId)
+        .single(),
+      supabase.from('players').select(PLAYER_COLS).eq('game_id', gameId).order('joined_at'),
     ]);
   if (ge) throw ge;
   if (pe) throw pe;
-  if (te) throw te;
   return {
     game: game as unknown as LobbyGame,
-    players: (players ?? []) as LobbyPlayer[],
-    teams: (teams ?? []) as unknown as LobbyTeam[],
+    players: (players ?? []) as unknown as LobbyPlayer[],
   };
 }
 
-export type HostDetail = {
-  secrets: TeamSecret[];
-  tombolaA: Token[];
-  tombolaB: Token[];
+/** Apuesta cruda (solo el host la lee antes de resolver). */
+export type HostBet = {
+  player_id: string;
+  round: number;
+  tombola: 'A' | 'B';
+  amount: number;
+  columns: number[];
 };
 
-/** Detalle completo solo para el moderador: secretos de todos + tómbolas restantes. */
-export async function loadHostDetail(gameId: string): Promise<HostDetail> {
-  const [{ data: secrets }, { data: priv }] = await Promise.all([
-    supabase
-      .from('team_secrets')
-      .select('team_id, hand, combination, condition, coins')
-      .eq('game_id', gameId),
-    supabase
-      .from('game_private')
-      .select('tombola_a, tombola_b')
-      .eq('game_id', gameId)
-      .maybeSingle(),
-  ]);
+/** Registro público de una ronda ya resuelta (payload de round_history). */
+export type RoundHistoryRow = {
+  round: number;
+  winnerPlayerId: string | null;
+  winnerTombola: 'A' | 'B' | null;
+  totals: { A: number; B: number };
+  bets: HostBet[];
+};
+
+export type HostDetail = {
+  secrets: PlayerSecret[];
+  tombolaA: Token[];
+  tombolaB: Token[];
+  /** Apuestas de la ronda en curso (visibles en vivo para el moderador). */
+  currentBets: HostBet[];
+  /** Historial de rondas ya resueltas. */
+  history: RoundHistoryRow[];
+};
+
+/** Detalle completo solo para el moderador: secretos, tómbolas, apuestas e historial. */
+export async function loadHostDetail(gameId: string, round: number): Promise<HostDetail> {
+  const [{ data: secrets }, { data: priv }, { data: betsRows }, { data: historyRows }] =
+    await Promise.all([
+      supabase
+        .from('player_secrets')
+        .select('player_id, hand, combination, condition, coins')
+        .eq('game_id', gameId),
+      supabase
+        .from('game_private')
+        .select('tombola_a, tombola_b')
+        .eq('game_id', gameId)
+        .maybeSingle(),
+      supabase
+        .from('bets')
+        .select('player_id, round, tombola, amount, columns')
+        .eq('game_id', gameId)
+        .eq('round', round),
+      supabase
+        .from('round_history')
+        .select('round, payload')
+        .eq('game_id', gameId)
+        .order('round'),
+    ]);
+
+  const currentBets: HostBet[] = (betsRows ?? []).map((b) => ({
+    player_id: b.player_id as string,
+    round: b.round as number,
+    tombola: b.tombola as 'A' | 'B',
+    amount: b.amount as number,
+    columns: b.columns as unknown as number[],
+  }));
+
+  const history: RoundHistoryRow[] = (historyRows ?? []).map((r) => {
+    const p = r.payload as {
+      winnerPlayerId?: string | null;
+      winnerTombola?: 'A' | 'B' | null;
+      totals?: { A: number; B: number };
+      bets?: Array<{ player_id: string; tombola: 'A' | 'B'; amount: number; columns: number[] }>;
+    };
+    return {
+      round: r.round as number,
+      winnerPlayerId: p.winnerPlayerId ?? null,
+      winnerTombola: p.winnerTombola ?? null,
+      totals: p.totals ?? { A: 0, B: 0 },
+      bets: (p.bets ?? []).map((b) => ({
+        player_id: b.player_id,
+        round: r.round as number,
+        tombola: b.tombola,
+        amount: b.amount,
+        columns: b.columns,
+      })),
+    };
+  });
+
   return {
-    secrets: (secrets ?? []) as unknown as TeamSecret[],
+    secrets: (secrets ?? []) as unknown as PlayerSecret[],
     tombolaA: ((priv?.tombola_a ?? []) as unknown as Token[]),
     tombolaB: ((priv?.tombola_b ?? []) as unknown as Token[]),
+    currentBets,
+    history,
   };
 }
 
-/** Carga el secreto del equipo del jugador (RLS lo permite solo a miembros/host). */
-export async function loadMyTeamSecret(teamId: string): Promise<TeamSecret | null> {
+/** Carga el secreto del jugador (RLS lo permite solo al dueño/host). */
+export async function loadMyPlayerSecret(playerId: string): Promise<PlayerSecret | null> {
   const { data, error } = await supabase
-    .from('team_secrets')
-    .select('team_id, hand, combination, condition, coins')
-    .eq('team_id', teamId)
+    .from('player_secrets')
+    .select('player_id, hand, combination, condition, coins')
+    .eq('player_id', playerId)
     .maybeSingle();
   if (error) throw error;
-  return data ? (data as unknown as TeamSecret) : null;
+  return data ? (data as unknown as PlayerSecret) : null;
 }
 
-/** Suscribe a cambios del lobby (games/players/teams) de una sala. */
+/** Suscribe a cambios del lobby (games/players) de una sala. */
 export function subscribeRoom(gameId: string, onChange: () => void) {
   const channel = supabase
     .channel(`room:${gameId}`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'players', filter: `game_id=eq.${gameId}` }, onChange)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'teams', filter: `game_id=eq.${gameId}` }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'games', filter: `id=eq.${gameId}` }, onChange)
     .subscribe();
   return () => {
@@ -223,87 +287,19 @@ export function subscribeRoom(gameId: string, onChange: () => void) {
 // ---------------------------------------------------------------------------
 
 /**
- * Reparte automáticamente los jugadores en equipos de ~5 (rango 4-6), creando
- * los equipos necesarios y marcando un representante por equipo.
- */
-export async function autoAssignTeams(gameId: string): Promise<void> {
-  const snap = await loadSnapshot(gameId);
-  const players = snap.players;
-  const n = players.length;
-  if (n === 0) throw new Error('No hay jugadores para armar equipos.');
-
-  // Tamaño objetivo ~5 por equipo, pero siempre al menos 2 equipos (y nunca más
-  // equipos que jugadores). Para conteos altos (hasta 30) da equipos de 4-6.
-  const numTeams = Math.min(n, Math.max(2, Math.round(n / 5)));
-
-  // Borra equipos previos (reasigna desde cero).
-  await supabase.from('teams').delete().eq('game_id', gameId);
-
-  const created: LobbyTeam[] = [];
-  for (let i = 0; i < numTeams; i++) {
-    const { data, error } = await supabase
-      .from('teams')
-      .insert({ game_id: gameId, name: `Equipo ${i + 1}` })
-      .select('id, game_id, name, score, representative, bet_submitted')
-      .single();
-    if (error) throw error;
-    created.push(data as LobbyTeam);
-  }
-
-  // Distribución tipo "serpiente" para equilibrar tamaños.
-  for (let i = 0; i < players.length; i++) {
-    const teamIdx = i % numTeams;
-    const team = created[teamIdx];
-    const isFirstOfTeam = i < numTeams; // primer jugador asignado = representante
-    await supabase
-      .from('players')
-      .update({ team_id: team.id })
-      .eq('id', players[i].id);
-    if (isFirstOfTeam) {
-      await supabase
-        .from('teams')
-        .update({ representative: players[i].auth_uid })
-        .eq('id', team.id);
-    }
-  }
-}
-
-/** Cambia el representante de un equipo. */
-export async function setRepresentative(teamId: string, playerAuthUid: string): Promise<void> {
-  const { error } = await supabase.from('teams').update({ representative: playerAuthUid }).eq('id', teamId);
-  if (error) throw error;
-}
-
-/** Renombra un equipo. */
-export async function renameTeam(teamId: string, name: string): Promise<void> {
-  const { error } = await supabase.from('teams').update({ name }).eq('id', teamId);
-  if (error) throw error;
-}
-
-/**
- * Inicia la partida: valida equipos, asigna condición única por equipo, reparte
- * 3 cartas por equipo y crea los secretos. Deja la sala en 'setup' para que cada
- * representante defina su combinación y carta pública (siguiente fase).
+ * Inicia la partida: reparte 3 cartas y una condición única a cada jugador,
+ * crea sus secretos y deja la sala en 'setup' para que cada jugador defina su
+ * combinación y su carta pública.
  */
 export async function startGame(gameId: string): Promise<void> {
   const snap = await loadSnapshot(gameId);
-  const teams = snap.teams;
-  if (teams.length < 2) throw new Error('Se necesitan al menos 2 equipos.');
-
-  for (const t of teams) {
-    const members = snap.players.filter((p) => p.team_id === t.id);
-    if (members.length < 1) {
-      throw new Error(`"${t.name}" no tiene integrantes.`);
-    }
-    if (!t.representative) {
-      throw new Error(`"${t.name}" no tiene representante asignado.`);
-    }
-  }
+  const players = snap.players.filter((p) => p.connected);
+  if (players.length < 2) throw new Error('Se necesitan al menos 2 jugadores.');
 
   const rng = makeRng(Date.now());
-  const { hands } = dealHands(teams.length, rng);
+  const hands = dealHandsIndependent(players.length, rng);
   const conditions = assignUniqueConditions(
-    teams.map((t) => t.id),
+    players.map((p) => p.id),
     rng,
   );
 
@@ -317,20 +313,26 @@ export async function startGame(gameId: string): Promise<void> {
     })
     .eq('game_id', gameId);
 
-  for (let i = 0; i < teams.length; i++) {
+  for (let i = 0; i < players.length; i++) {
     const hand = hands[i];
-    await supabase.from('team_secrets').insert({
-      team_id: teams[i].id,
+    await supabase.from('player_secrets').upsert({
+      player_id: players[i].id,
       game_id: gameId,
       hand: hand as unknown as Json,
       combination: handToCombination(hand) as unknown as Json, // provisional
-      condition: conditions[teams[i].id] as unknown as Json,
+      condition: conditions[players[i].id] as unknown as Json,
       coins: 30,
     });
     await supabase
-      .from('teams')
-      .update({ revealed_card_id: hand[0].id })
-      .eq('id', teams[i].id);
+      .from('players')
+      .update({
+        revealed_card_id: hand[0].id,
+        setup_done: false,
+        bet_submitted: false,
+        score: 0,
+        rounds_won: 0,
+      })
+      .eq('id', players[i].id);
   }
 
   const { error } = await supabase

@@ -27,7 +27,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     title: 'Mecánica de juego: monedas',
-    body: 'Cada jugador cuenta con 30 monedas para usar durante las 5 rondas. Adminístralas bien.\n\nEl máximo de monedas que puedes usar por ronda se mantiene en 10 en esta demo por la contradicción pendiente entre el documento técnico base y el texto actualizado.\n\nLas monedas sirven para votar por una de las dos tómbolas disponibles en cada ronda. En caso de empate, las monedas de esa ronda se regresan y la ronda se repite.',
+    body: 'Cada jugador cuenta con 30 monedas para usar durante las 5 rondas. Adminístralas bien.\n\nEl máximo de monedas que puedes apostar por ronda es 10.\n\nLas monedas sirven para votar por una de las dos tómbolas disponibles en cada ronda. En caso de empate, las monedas de esa ronda se regresan y la ronda se repite.',
   },
   {
     title: 'Mecánica de juego: tómbolas',
