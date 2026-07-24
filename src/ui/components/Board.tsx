@@ -38,17 +38,16 @@ export function Board({
 }: Props) {
   const cellSize = compact ? 'w-12 h-12' : 'w-14 h-14';
   const labelWidth = compact ? 'w-12' : 'w-14';
-  const tokenSize = compact ? 'sm' : 'sm';
 
   return (
-    <div className="inline-block bg-ink/90 p-2 rounded-xl shadow-lg">
+    <div className="inline-block rounded-2xl bg-surface p-3 shadow-elev ring-1 ring-accent/10">
       <div className="flex">
         {/* Eje Y — letras */}
-        <div className="flex flex-col gap-1 mr-1 justify-center">
+        <div className="mr-1.5 flex flex-col justify-center gap-1.5">
           {ROW_LABELS.map((label) => (
             <div
               key={label}
-              className={`${cellSize} flex items-center justify-center text-xs text-base/70 font-mono font-bold`}
+              className={`${cellSize} flex items-center justify-center font-mono text-xs font-bold text-muted`}
             >
               {label}
             </div>
@@ -57,42 +56,45 @@ export function Board({
 
         {/* Grid principal */}
         <div>
-          <div className={`grid gap-1`} style={{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }}>
+          <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }}>
             {board.flatMap((row, r) =>
               row.map((cell, c) => {
                 const highlighted = highlightCols.includes(c);
-                const animated = animatedPlacements.some(
-                  (p) => p.row === r && p.col === c,
-                );
-                const preview = previewPlacements.find(
-                  (p) => p.row === r && p.col === c,
-                );
+                const animated = animatedPlacements.some((p) => p.row === r && p.col === c);
+                const preview = previewPlacements.find((p) => p.row === r && p.col === c);
                 const isClickable = clickableColumns?.includes(c);
                 return (
                   <div
                     key={`${r}-${c}`}
-                    className={`${cellSize} rounded-md flex items-center justify-center transition-all ${
-                      highlighted ? 'bg-accent/30 ring-2 ring-accent' : 'bg-base/15'
-                    } ${isClickable ? 'cursor-pointer hover:bg-accent/20 hover:ring-1 hover:ring-accent/50' : ''}`}
+                    className={`${cellSize} flex items-center justify-center rounded-xl shadow-well transition-all ${
+                      highlighted
+                        ? 'bg-accent/25 ring-2 ring-accent'
+                        : 'bg-surface2'
+                    } ${isClickable ? 'cursor-pointer ring-1 ring-transparent hover:bg-accent/15 hover:ring-accent/50' : ''}`}
                     onClick={() => isClickable && onColumnClick?.(c)}
                   >
                     {preview ? (
-                      <div className="relative animate-token-drop"
+                      <div
+                        className="relative animate-token-drop"
                         style={{ '--drop-distance': `${(r + 1) * -56}px` } as CSSProperties}
                       >
-                        <div className="opacity-70 ring-2 ring-dashed ring-accent rounded-full">
-                          <TokenIcon figure={preview.figure} size={tokenSize} />
+                        <div className="rounded-full opacity-75 ring-2 ring-dashed ring-accent">
+                          <TokenIcon figure={preview.figure} size="sm" />
                         </div>
-                        <span className="absolute -top-1 -right-1 bg-accent text-ink text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center shadow">
+                        <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-accent-ink shadow">
                           {preview.index + 1}
                         </span>
                       </div>
                     ) : cell ? (
                       <div
                         className={animated ? 'animate-token-drop' : undefined}
-                        style={animated ? { '--drop-distance': `${(r + 1) * -56}px` } as CSSProperties : undefined}
+                        style={
+                          animated
+                            ? ({ '--drop-distance': `${(r + 1) * -56}px` } as CSSProperties)
+                            : undefined
+                        }
                       >
-                        <TokenIcon figure={cell} size={tokenSize} />
+                        <TokenIcon figure={cell} size="sm" />
                       </div>
                     ) : null}
                   </div>
@@ -101,11 +103,11 @@ export function Board({
             )}
           </div>
           {/* Eje X — números */}
-          <div className={`grid gap-1 mt-1`} style={{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }}>
+          <div className="mt-1.5 grid gap-1.5" style={{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }}>
             {Array.from({ length: COLS }, (_, c) => (
               <div
                 key={c}
-                className={`${labelWidth} text-center text-xs text-base/70 font-mono font-bold ${
+                className={`${labelWidth} text-center font-mono text-xs font-bold text-muted ${
                   onColumnClick && clickableColumns?.includes(c)
                     ? 'cursor-pointer hover:text-accent'
                     : ''

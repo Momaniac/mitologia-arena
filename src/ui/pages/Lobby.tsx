@@ -1,25 +1,13 @@
-import { useState } from 'react';
 import { useRoomStore } from '../../state/roomStore';
-import { isSupabaseConfigured } from '../../services/supabase';
+import { Icon } from '../components/Icon';
 import { GamePlay } from './GamePlay';
 
-export function Lobby({ onShowTutorial }: { onShowTutorial: () => void }) {
+export function Lobby() {
   const role = useRoomStore((s) => s.role);
   const status = useRoomStore((s) => s.game?.status);
 
-  if (!role) return <MultiplayerHome onShowTutorial={onShowTutorial} />;
   if (status && status !== 'lobby') return <GamePlay />;
   return role === 'host' ? <HostLobby /> : <PlayerLobby />;
-}
-
-function ConfigBanner() {
-  if (isSupabaseConfigured) return null;
-  return (
-    <div className="mx-auto mb-4 max-w-xl rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-ink">
-      Supabase no está configurado en este entorno. Define{' '}
-      <code>VITE_SUPABASE_URL</code> y <code>VITE_SUPABASE_ANON_KEY</code>.
-    </div>
-  );
 }
 
 function ErrorBar() {
@@ -29,86 +17,9 @@ function ErrorBar() {
   return (
     <div className="mx-auto mb-4 flex max-w-xl items-center justify-between gap-3 rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm font-semibold text-ink">
       <span>{error}</span>
-      <button type="button" onClick={clearError} className="text-ink/60 hover:text-ink">
-        ✕
+      <button type="button" onClick={clearError} aria-label="Cerrar" className="text-muted hover:text-ink">
+        <Icon name="close" size={16} />
       </button>
-    </div>
-  );
-}
-
-function MultiplayerHome({ onShowTutorial }: { onShowTutorial: () => void }) {
-  const hostCreate = useRoomStore((s) => s.hostCreate);
-  const join = useRoomStore((s) => s.join);
-  const busy = useRoomStore((s) => s.busy);
-  const [code, setCode] = useState('');
-  const [name, setName] = useState('');
-
-  return (
-    <div className="min-h-screen bg-base p-4 md:p-6">
-      <div className="mx-auto max-w-3xl">
-        <header className="mb-6 text-center">
-          <h1 className="text-3xl font-extrabold text-ink">Mitología</h1>
-          <p className="text-ink/60">Juego multijugador · Arena</p>
-        </header>
-
-        <ConfigBanner />
-        <ErrorBar />
-
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {/* Host */}
-          <section className="rounded-2xl border border-ink/10 bg-white p-6">
-            <h2 className="mb-1 text-xl font-bold text-ink">Crear sala</h2>
-            <p className="mb-4 text-sm text-ink/70">
-              Eres el <strong>moderador</strong>. Se genera un código para que los
-              jugadores se unan desde sus teléfonos.
-            </p>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => hostCreate()}
-              className="w-full rounded-lg bg-accent py-3 font-bold text-ink shadow hover:bg-accent-dark disabled:opacity-50"
-            >
-              {busy ? 'Creando…' : 'Crear sala'}
-            </button>
-          </section>
-
-          {/* Player */}
-          <section className="rounded-2xl border border-ink/10 bg-white p-6">
-            <h2 className="mb-1 text-xl font-bold text-ink">Unirse a una sala</h2>
-            <p className="mb-3 text-sm text-ink/70">
-              Ingresa el código que te dio el moderador y tu nombre.
-            </p>
-            <input
-              value={code}
-              onChange={(e) => setCode(e.target.value.toUpperCase())}
-              placeholder="Código (ej. ABCDE)"
-              maxLength={6}
-              className="mb-2 w-full rounded-lg border border-ink/15 px-3 py-2 font-mono uppercase tracking-widest text-ink"
-            />
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Tu nombre"
-              maxLength={24}
-              className="mb-3 w-full rounded-lg border border-ink/15 px-3 py-2 text-ink"
-            />
-            <button
-              type="button"
-              disabled={busy || code.trim().length < 4 || !name.trim()}
-              onClick={() => join(code, name)}
-              className="w-full rounded-lg bg-link py-3 font-bold text-white shadow hover:bg-link/90 disabled:opacity-50"
-            >
-              {busy ? 'Uniéndote…' : 'Unirse'}
-            </button>
-          </section>
-        </div>
-
-        <div className="mt-6 text-center">
-          <button type="button" onClick={onShowTutorial} className="text-sm text-link hover:underline">
-            Ver tutorial
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
@@ -131,38 +42,44 @@ function HostLobby() {
         <header className="mb-4 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-extrabold text-ink">Sala creada</h1>
-            <p className="text-sm text-ink/60">Vista del moderador</p>
+            <p className="text-sm text-muted">Vista del moderador</p>
           </div>
-          <button type="button" onClick={leave} className="text-sm text-link hover:underline">
+          <button
+            type="button"
+            onClick={leave}
+            className="inline-flex items-center gap-1 text-sm text-link hover:underline"
+          >
+            <Icon name="logout" size={16} />
             Cerrar sala
           </button>
         </header>
 
-        <div className="mb-4 rounded-2xl border border-accent/40 bg-accent/10 p-5 text-center">
-          <div className="text-xs font-semibold uppercase text-ink/60">Código de la sala</div>
+        <div className="mb-4 rounded-2xl border border-accent/30 bg-accent/10 p-5 text-center">
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted">Código de la sala</div>
           <div className="font-mono text-5xl font-extrabold tracking-[0.3em] text-ink">{code}</div>
-          <p className="mt-1 text-sm text-ink/70">Compártelo para que los jugadores se unan desde sus teléfonos.</p>
+          <p className="mt-1 text-sm text-muted">Compártelo para que los jugadores se unan desde sus teléfonos.</p>
         </div>
 
-        <div className="mb-4 rounded-xl border border-ink/10 bg-white p-4">
+        <div className="mb-4 rounded-xl border border-line bg-surface p-4">
           <div className="mb-2 flex items-center justify-between">
             <h3 className="font-bold text-ink">
-              Jugadores conectados: <span className="text-link">{connected.length}</span>
+              Jugadores conectados: <span className="text-accent">{connected.length}</span>
             </h3>
             <button
               type="button"
               onClick={refresh}
-              className="rounded-lg border border-ink/10 bg-base px-3 py-1.5 text-sm font-semibold text-ink hover:border-link"
+              className="inline-flex items-center gap-1 rounded-lg border border-line bg-surface2 px-3 py-1.5 text-sm font-semibold text-ink hover:border-link"
             >
-              ↻ Actualizar
+              <Icon name="refresh" size={15} />
+              Actualizar
             </button>
           </div>
           {connected.length === 0 ? (
-            <p className="text-sm text-ink/50">Aún no se une nadie. La lista se actualiza sola.</p>
+            <p className="text-sm text-muted">Aún no se une nadie. La lista se actualiza sola.</p>
           ) : (
             <div className="flex flex-wrap gap-2">
               {connected.map((p) => (
-                <span key={p.id} className="rounded-full bg-base px-3 py-1 text-sm text-ink/80">
+                <span key={p.id} className="rounded-full bg-surface2 px-3 py-1 text-sm text-ink/85">
                   {p.name}
                 </span>
               ))}
@@ -174,11 +91,11 @@ function HostLobby() {
           type="button"
           onClick={start}
           disabled={busy || !canStart}
-          className="w-full rounded-lg bg-accent py-3 font-bold text-ink hover:bg-accent-dark disabled:opacity-50"
+          className="w-full rounded-lg bg-accent py-3 font-bold text-accent-ink hover:bg-accent-dark disabled:opacity-50"
         >
           Comenzar partida
         </button>
-        <p className="mt-2 text-center text-xs text-ink/60">
+        <p className="mt-2 text-center text-xs text-muted">
           {canStart
             ? 'Todos jugarán de forma individual. Cada uno recibirá sus 3 cartas y su condición secreta.'
             : 'Se necesitan al menos 2 jugadores conectados para comenzar.'}
@@ -204,29 +121,35 @@ function PlayerLobby() {
         <header className="mb-4 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-extrabold text-ink">Sala {code}</h1>
-            <p className="text-sm text-ink/60">Hola, {me?.name ?? 'jugador'}</p>
+            <p className="text-sm text-muted">Hola, {me?.name ?? 'jugador'}</p>
           </div>
-          <button type="button" onClick={leave} className="text-sm text-link hover:underline">
+          <button
+            type="button"
+            onClick={leave}
+            className="inline-flex items-center gap-1 text-sm text-link hover:underline"
+          >
+            <Icon name="logout" size={16} />
             Salir
           </button>
         </header>
 
-        <div className="rounded-2xl border border-ink/10 bg-white p-6 text-center">
-          <div className="mb-2 text-4xl">⏳</div>
+        <div className="rounded-2xl border border-line bg-surface p-6 text-center">
+          <span className="mx-auto mb-2 grid h-12 w-12 place-items-center rounded-full bg-accent/15 text-accent">
+            <Icon name="hourglass" size={24} />
+          </span>
           <h2 className="text-lg font-bold text-ink">Esperando al moderador…</h2>
-          <p className="mt-1 text-sm text-ink/70">
-            {connected.length} jugadores en la sala. La partida empezará cuando el
-            moderador la inicie.
+          <p className="mt-1 text-sm text-muted">
+            {connected.length} jugadores en la sala. La partida empezará cuando el moderador la inicie.
           </p>
           <ul className="mt-4 space-y-1 text-left">
             {connected.map((p) => (
               <li
                 key={p.id}
-                className="flex items-center justify-between rounded-lg bg-base px-3 py-1.5 text-sm text-ink"
+                className="flex items-center justify-between rounded-lg bg-surface2 px-3 py-1.5 text-sm text-ink"
               >
                 <span>
                   {p.name}
-                  {p.auth_uid === myUid && <span className="text-ink/50"> (tú)</span>}
+                  {p.auth_uid === myUid && <span className="text-muted"> (tú)</span>}
                 </span>
               </li>
             ))}

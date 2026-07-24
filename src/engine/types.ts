@@ -10,14 +10,6 @@ export const FIGURE_LABEL: Record<Figure, string> = {
   minotauro: 'Minotauro',
 };
 
-export const FIGURE_EMOJI: Record<Figure, string> = {
-  dragon: '🐉',
-  hydra: '🐍',
-  fenix: '🔥',
-  kraken: '🦑',
-  minotauro: '🐂',
-};
-
 export type Card = {
   id: string;
   figure: Figure;

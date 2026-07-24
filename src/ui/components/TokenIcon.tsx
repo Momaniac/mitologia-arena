@@ -1,20 +1,9 @@
-import { FIGURE_EMOJI, FIGURE_LABEL, type Figure } from '../../engine/types';
-
-const FIGURE_BG: Record<Figure, string> = {
-  dragon: 'bg-dragon',
-  hydra: 'bg-hydra',
-  fenix: 'bg-fenix',
-  kraken: 'bg-kraken',
-  minotauro: 'bg-minotauro',
-};
+import { FIGURE_LABEL, type Figure } from '../../engine/types';
+import { TOKEN_ART } from '../figureArt';
 
 type Size = 'sm' | 'md' | 'lg';
 
-const SIZE_CLASSES: Record<Size, string> = {
-  sm: 'w-8 h-8 text-base',
-  md: 'w-12 h-12 text-xl',
-  lg: 'w-16 h-16 text-3xl',
-};
+const SIZE_PX: Record<Size, number> = { sm: 32, md: 48, lg: 64 };
 
 type Props = {
   figure: Figure;
@@ -23,21 +12,24 @@ type Props = {
   faded?: boolean;
 };
 
+/** Ficha de figura: medallón ilustrado (ver ASSETS.md · src/assets/tokens). */
 export function TokenIcon({ figure, size = 'md', showLabel = false, faded = false }: Props) {
+  const px = SIZE_PX[size];
   return (
     <div
       className={`inline-flex flex-col items-center gap-1 ${faded ? 'opacity-50' : ''}`}
       title={FIGURE_LABEL[figure]}
     >
-      <span
-        className={`${SIZE_CLASSES[size]} ${FIGURE_BG[figure]} rounded-full flex items-center justify-center text-white shadow-md border-2 border-ink/30`}
-        aria-label={FIGURE_LABEL[figure]}
-      >
-        {FIGURE_EMOJI[figure]}
-      </span>
-      {showLabel && (
-        <span className="text-xs font-medium text-ink">{FIGURE_LABEL[figure]}</span>
-      )}
+      <img
+        src={TOKEN_ART[figure]}
+        alt={FIGURE_LABEL[figure]}
+        width={px}
+        height={px}
+        draggable={false}
+        className="object-contain"
+        style={{ filter: 'drop-shadow(0 2px 3px rgba(0,0,0,0.45))' }}
+      />
+      {showLabel && <span className="text-xs font-medium text-ink/80">{FIGURE_LABEL[figure]}</span>}
     </div>
   );
 }
