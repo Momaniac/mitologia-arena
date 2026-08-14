@@ -74,6 +74,11 @@ cronómetro corriendo.
 - `start_betting(game_id, segundos)` fija `games.betting_ends_at` con el **reloj
   del servidor**. Cada dispositivo mide su desfase una vez (`server_now()`,
   `syncServerClock`) y lo aplica, así todos ven el mismo número.
+- El moderador fija la duración con un **fader** (`TimeFader`), de **10 s a 5
+  minutos** en pasos de 5 s (`src/ui/betDuration.ts`). Puede moverlo también con
+  las apuestas en curso: «Poner en X» reinicia la cuenta, «+30 s» los suma al
+  tiempo restante. Ambos llaman a `start_betting`, que acepta las fases `DRAW` y
+  `BETTING`. El servidor reacota el valor por su cuenta.
 - `close_betting(game_id)` descuenta 1 moneda a cada jugador conectado sin
   apuesta, guarda sus ids en `games.bet_penalized` y pasa a `BETS_CLOSED`. Es
   **idempotente**: si ya estaba cerrada, no vuelve a cobrar.

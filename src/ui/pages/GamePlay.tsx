@@ -7,6 +7,8 @@ import { Card } from '../components/Card';
 import { Icon } from '../components/Icon';
 import { CoinChip } from '../components/CoinChip';
 import { BettingTimer } from '../components/BettingTimer';
+import { TimeFader } from '../components/TimeFader';
+import { clampBetSeconds, formatDuration } from '../betDuration';
 import { useSecondsLeft } from '../hooks/useSecondsLeft';
 import { availableColumns, lowestFreeRow, placeTokens } from '../../engine/board';
 import { FIGURES } from '../../engine/types';
@@ -637,9 +639,6 @@ function DrawDisplay() {
   );
 }
 
-/** Opciones de duración para la ronda de apuestas (segundos). */
-const BET_DURATIONS = [30, 45, 60, 90, 120];
-
 function HostRound() {
   const phase = useRoomStore((s) => s.game?.phase);
   const players = useRoomStore((s) => s.players);
@@ -652,7 +651,9 @@ function HostRound() {
   const hostAdvance = useRoomStore((s) => s.hostAdvance);
   const busy = useRoomStore((s) => s.busy);
   const round = useRoomStore((s) => s.game?.round) ?? 0;
-  const [seconds, setSeconds] = useState(betSeconds);
+  // Acotado por si la partida guardó una duración anterior a los límites del fader.
+  const [seconds, setSeconds] = useState(() => clampBetSeconds(betSeconds));
+  const secondsLeft = useSecondsLeft(phase === 'BETTING' ? endsAt : null);
 
   const connected = players.filter((p) => p.connected);
   const submitted = connected.filter((p) => p.bet_submitted).length;
@@ -689,21 +690,7 @@ function HostRound() {
             podrán enviarla hasta que inicies el tiempo.
           </p>
           <div className="mb-3">
-            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">
-              Tiempo para apostar
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {BET_DURATIONS.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setSeconds(s)}
-                  className={`rounded-lg border-2 px-3 py-1.5 text-sm font-bold ${seconds === s ? 'border-accent-dark bg-accent text-accent-ink' : 'border-line bg-surface2 text-muted'}`}
-                >
-                  {s >= 60 ? `${s / 60} min${s % 60 ? ` ${s % 60}s` : ''}` : `${s}s`}
-                </button>
-              ))}
-            </div>
+            <TimeFader value={seconds} onChange={setSeconds} disabled={busy} />
           </div>
           <button
             type="button"
@@ -712,7 +699,7 @@ function HostRound() {
             className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-accent py-3 font-bold text-accent-ink hover:bg-accent-dark disabled:opacity-50"
           >
             <Icon name="play" size={18} />
-            Iniciar apuestas
+            Iniciar apuestas ({formatDuration(seconds)})
           </button>
           <p className="mt-2 text-xs text-muted">
             Al agotarse el tiempo, quien no haya apostado pierde 1 moneda, queda fuera de
@@ -729,14 +716,36 @@ function HostRound() {
             onExpire={closeNow}
             hint="Al llegar a cero se cierran las apuestas automáticamente y se resuelve la ronda."
           />
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => hostStartBetting(30)}
-            className="w-full rounded-lg border border-line bg-surface2 py-2 text-sm font-semibold text-ink hover:border-accent disabled:opacity-50"
-          >
-            Dar 30 segundos más
-          </button>
+          <div className="rounded-xl border border-line bg-surface p-3">
+            <TimeFader
+              value={seconds}
+              onChange={setSeconds}
+              disabled={busy}
+              label="Ajustar el reloj"
+            />
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => hostStartBetting(seconds)}
+                className="rounded-lg bg-accent py-2 text-sm font-bold text-accent-ink hover:bg-accent-dark disabled:opacity-50"
+              >
+                Poner en {formatDuration(seconds)}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => hostStartBetting(clampBetSeconds((secondsLeft ?? 0) + 30))}
+                className="rounded-lg border border-line bg-surface2 py-2 text-sm font-semibold text-ink hover:border-accent disabled:opacity-50"
+              >
+                +30 s
+              </button>
+            </div>
+            <p className="mt-2 text-xs text-muted">
+              «Poner en» reinicia la cuenta con el tiempo del fader; «+30 s» se los suma al
+              tiempo que queda.
+            </p>
+          </div>
         </div>
       )}
 

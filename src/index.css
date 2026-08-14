@@ -100,6 +100,70 @@ button {
   animation: pulse-ring 1.4s ease-in-out infinite;
 }
 
+/* Fader de tiempo del moderador. El relleno hasta el pulgar se pinta con un
+   degradado duro sobre el riel (`--fader-pct`), porque WebKit no expone un
+   pseudo-elemento para la parte "recorrida" del riel. */
+.time-fader {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 44px; /* área táctil cómoda en el móvil; el riel se dibuja al centro */
+  background: transparent;
+  cursor: pointer;
+}
+
+.time-fader::-webkit-slider-runnable-track {
+  height: 10px;
+  border-radius: 9999px;
+  background: linear-gradient(
+    to right,
+    #ffc107 0%,
+    #ffc107 var(--fader-pct, 0%),
+    #212a35 var(--fader-pct, 0%),
+    #212a35 100%
+  );
+  border: 1px solid #2a3542;
+}
+
+.time-fader::-moz-range-track {
+  height: 10px;
+  border-radius: 9999px;
+  background: #212a35;
+  border: 1px solid #2a3542;
+}
+
+.time-fader::-moz-range-progress {
+  height: 10px;
+  border-radius: 9999px;
+  background: #ffc107;
+}
+
+.time-fader::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  margin-top: -10px; /* centra el pulgar de 28px sobre el riel de 10px */
+  border-radius: 9999px;
+  background: #ffc107;
+  border: 3px solid #17130a;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+}
+
+.time-fader::-moz-range-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 9999px;
+  background: #ffc107;
+  border: 3px solid #17130a;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+}
+
+.time-fader:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
