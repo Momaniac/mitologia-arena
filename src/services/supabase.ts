@@ -50,3 +50,34 @@ export async function ensureAnonSession(): Promise<string> {
   supabase.realtime.setAuth(session.access_token);
   return session.user.id;
 }
+
+// ---------------------------------------------------------------------------
+// Reloj del servidor
+// ---------------------------------------------------------------------------
+// El cronómetro de apuestas se guarda como un instante absoluto (games.betting_ends_at)
+// medido con el reloj de Postgres. Los teléfonos pueden ir adelantados o atrasados,
+// así que cada dispositivo mide su desfase una vez y lo aplica a la cuenta regresiva:
+// así todos ven el mismo número de segundos.
+
+let clockOffsetMs = 0;
+
+/** Mide el desfase entre el reloj local y el del servidor (mejor esfuerzo). */
+export async function syncServerClock(): Promise<void> {
+  try {
+    const sent = Date.now();
+    const { data, error } = await supabase.rpc('server_now');
+    if (error || !data) return;
+    const received = Date.now();
+    const serverMs = new Date(data as string).getTime();
+    if (Number.isNaN(serverMs)) return;
+    // Se asume latencia simétrica: el servidor respondió a mitad del viaje.
+    clockOffsetMs = serverMs - (sent + (received - sent) / 2);
+  } catch {
+    /* sin sincronía: se usa el reloj local */
+  }
+}
+
+/** "Ahora" según el reloj del servidor, en milisegundos. */
+export function serverNow(): number {
+  return Date.now() + clockOffsetMs;
+}

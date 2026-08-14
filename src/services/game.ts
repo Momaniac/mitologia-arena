@@ -63,7 +63,10 @@ export async function submitBet(
 // Host (autoritativo)
 // ---------------------------------------------------------------------------
 
-/** Extrae 4+4 fichas para una ronda y abre apuestas. */
+/**
+ * Extrae 4+4 fichas para una ronda y las pone en mesa (fase DRAW).
+ * Las apuestas NO se abren aquí: el moderador las abre con `startBetting`.
+ */
 export async function drawRound(gameId: string, round: number): Promise<void> {
   const priv = await loadPrivate(gameId);
   const rng = makeRng(priv.seed + round);
@@ -83,11 +86,13 @@ export async function drawRound(gameId: string, round: number): Promise<void> {
     .from('games')
     .update({
       status: 'playing',
-      phase: 'BETTING',
+      phase: 'DRAW',
       round,
       current_draw: { A: a.drawn, B: b.drawn } as unknown as Json,
       bet_totals: null,
       last_result: null,
+      betting_ends_at: null,
+      bet_penalized: [] as unknown as Json,
     })
     .eq('id', gameId);
 }
@@ -95,6 +100,28 @@ export async function drawRound(gameId: string, round: number): Promise<void> {
 /** Inicia la fase de rondas tras el setup. */
 export async function hostStartRounds(gameId: string): Promise<void> {
   await drawRound(gameId, 1);
+}
+
+/**
+ * Abre la ronda de apuestas y arranca el cronómetro (el instante de cierre lo
+ * fija el servidor, así todos los dispositivos cuentan lo mismo).
+ */
+export async function startBetting(gameId: string, seconds: number): Promise<void> {
+  const { error } = await supabase.rpc('start_betting', {
+    p_game_id: gameId,
+    p_seconds: seconds,
+  });
+  if (error) throw error;
+}
+
+/**
+ * Cierra las apuestas: quien no apostó pierde 1 moneda y queda fuera de la
+ * ronda. Devuelve los player_id multados. Es idempotente en el servidor.
+ */
+export async function closeBetting(gameId: string): Promise<string[]> {
+  const { data, error } = await supabase.rpc('close_betting', { p_game_id: gameId });
+  if (error) throw error;
+  return (Array.isArray(data) ? data : []) as string[];
 }
 
 async function deductCoins(bets: { player_id: string; amount: number }[]): Promise<void> {
@@ -113,13 +140,17 @@ async function deductCoins(bets: { player_id: string; amount: number }[]): Promi
 export async function resolveRound(gameId: string): Promise<void> {
   const { data: g, error: ge } = await supabase
     .from('games')
-    .select('round, board, current_draw')
+    .select('round, board, current_draw, bet_penalized, phase')
     .eq('id', gameId)
     .single();
   if (ge) throw ge;
+  // Solo se resuelve una vez: el botón del moderador y el cronómetro pueden
+  // dispararse casi a la vez, y una segunda resolución cobraría de nuevo.
+  if (g.phase !== 'BETTING' && g.phase !== 'BETS_CLOSED') return;
   const round = g.round;
   const board = g.board as unknown as Board;
   const draw = g.current_draw as unknown as { A: Token[]; B: Token[] };
+  const penalized = (g.bet_penalized ?? []) as unknown as string[];
 
   const { data: betsRows, error: be } = await supabase
     .from('bets')
@@ -180,6 +211,7 @@ export async function resolveRound(gameId: string): Promise<void> {
         totals,
         bets: betsRows,
         placements,
+        penalized,
       } as unknown as Json,
     });
 
@@ -188,6 +220,7 @@ export async function resolveRound(gameId: string): Promise<void> {
       kind: 'winner',
       tombola: resolution.winnerTombola,
       totals,
+      penalized,
     };
     await supabase
       .from('games')
@@ -204,6 +237,7 @@ export async function resolveRound(gameId: string): Promise<void> {
       kind: 'void',
       totals,
       reason: resolution.reason,
+      penalized,
     };
     await supabase
       .from('games')
@@ -228,11 +262,18 @@ export async function advanceRound(gameId: string): Promise<void> {
 
   if (lr?.kind === 'void') {
     // Empate: repetir MISMA ronda con las mismas fichas (no se re-sortea).
+    // Vuelve a DRAW para que el moderador reabra las apuestas con cronómetro.
     await supabase.from('players').update({ bet_submitted: false }).eq('game_id', gameId);
     await supabase.from('bets').delete().eq('game_id', gameId).eq('round', g.round);
     await supabase
       .from('games')
-      .update({ phase: 'BETTING', last_result: null, bet_totals: null })
+      .update({
+        phase: 'DRAW',
+        last_result: null,
+        bet_totals: null,
+        betting_ends_at: null,
+        bet_penalized: [] as unknown as Json,
+      })
       .eq('id', gameId);
     return;
   }

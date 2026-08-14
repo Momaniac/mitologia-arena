@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useRoomStore } from '../../state/roomStore';
 import { Board } from '../components/Board';
 import { TokenIcon } from '../components/TokenIcon';
@@ -6,6 +6,8 @@ import { CardHand } from '../components/CardHand';
 import { Card } from '../components/Card';
 import { Icon } from '../components/Icon';
 import { CoinChip } from '../components/CoinChip';
+import { BettingTimer } from '../components/BettingTimer';
+import { useSecondsLeft } from '../hooks/useSecondsLeft';
 import { availableColumns, lowestFreeRow, placeTokens } from '../../engine/board';
 import { FIGURES } from '../../engine/types';
 import type {
@@ -15,7 +17,7 @@ import type {
   Figure,
   Token,
 } from '../../engine/types';
-import type { LobbyPlayer, PlayerSecret } from '../../services/room';
+import { PHASE_LABEL, type LobbyPlayer, type PlayerSecret } from '../../services/room';
 
 /** Los ids de carta son `${figura}-${n}`; deriva la figura de la carta pública. */
 function figureFromCardId(id: string | null | undefined): Figure | null {
@@ -70,7 +72,8 @@ function Shell({ children }: { children: React.ReactNode }) {
           <div>
             <h1 className="text-2xl font-extrabold text-ink">Mitología · {code}</h1>
             <p className="text-sm text-muted">
-              {role === 'host' ? 'Moderador' : 'Jugador'} · Ronda {round || '—'} · {phase}
+              {role === 'host' ? 'Moderador' : 'Jugador'} · Ronda {round || '—'} ·{' '}
+              {phase ? PHASE_LABEL[phase] ?? phase : '—'}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -237,7 +240,24 @@ function HostSetup() {
   const hostStart = useRoomStore((s) => s.hostStart);
   const busy = useRoomStore((s) => s.busy);
   const connected = players.filter((p) => p.connected);
-  const allReady = connected.length >= 2 && connected.every((p) => p.setup_done);
+  const ready = connected.filter((p) => p.setup_done);
+  const pending = connected.filter((p) => !p.setup_done);
+  // Basta con 2 listos: nadie debe quedarse esperando a quien se cayó la red.
+  const canStart = ready.length >= 2;
+
+  function start() {
+    if (pending.length > 0) {
+      const names = pending.map((p) => p.name).join(', ');
+      const ok = window.confirm(
+        `Aún no definen su combinación: ${names}.\n\n` +
+          'Si empiezas ahora, jugarán con el orden provisional que les tocó y podrán ' +
+          'ajustarlo desde su teléfono en cuanto entren.',
+      );
+      if (!ok) return;
+    }
+    void hostStart();
+  }
+
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-line bg-surface p-6">
@@ -262,12 +282,18 @@ function HostSetup() {
         </ul>
         <button
           type="button"
-          disabled={!allReady || busy}
-          onClick={hostStart}
+          disabled={!canStart || busy}
+          onClick={start}
           className="w-full rounded-lg bg-accent py-3 font-bold text-accent-ink hover:bg-accent-dark disabled:opacity-50"
         >
           Iniciar rondas
+          {pending.length > 0 && canStart ? ` (${pending.length} sin definir)` : ''}
         </button>
+        {!canStart && (
+          <p className="mt-2 text-center text-xs text-muted">
+            Se necesitan al menos 2 jugadores con su combinación definida.
+          </p>
+        )}
       </div>
       <ModeratorPanel />
     </div>
@@ -371,6 +397,8 @@ function ModeratorPanel() {
   const players = useRoomStore((s) => s.players);
   const phase = useRoomStore((s) => s.game?.phase);
   const round = useRoomStore((s) => s.game?.round) ?? 0;
+  const hostDealIn = useRoomStore((s) => s.hostDealIn);
+  const busy = useRoomStore((s) => s.busy);
   const [open, setOpen] = useState(true);
   if (!detail) return null;
   const countsA = countFigures(detail.tombolaA);
@@ -393,7 +421,7 @@ function ModeratorPanel() {
       {open && (
         <div className="space-y-4">
           {/* Apuestas en vivo de la ronda actual */}
-          {(phase === 'BETTING' || phase === 'ROUND_END') && (
+          {(phase === 'DRAW' || phase === 'BETTING' || phase === 'BETS_CLOSED' || phase === 'ROUND_END') && (
             <div>
               <div className="mb-1 text-xs font-semibold uppercase text-muted">
                 Apuestas en vivo · Ronda {round}
@@ -460,10 +488,18 @@ function ModeratorPanel() {
             <div className="space-y-2">
               {players.filter((p) => p.connected).map((p) => {
                 const sec = detail.secrets.find((s) => s.player_id === p.id);
+                const online = detail.online[p.id] === true;
                 return (
                   <div key={p.id} className="rounded-lg bg-surface p-2 text-sm">
                     <div className="flex items-center justify-between">
-                      <span className="font-bold text-ink">{p.name}</span>
+                      <span className="inline-flex items-center gap-1.5 font-bold text-ink">
+                        <span
+                          className={`h-2 w-2 rounded-full ${online ? 'bg-success' : 'bg-danger'}`}
+                          title={online ? 'En línea' : 'Sin señal'}
+                        />
+                        {p.name}
+                        {!online && <span className="text-xs font-normal text-danger">sin señal</span>}
+                      </span>
                       <span className="inline-flex items-center gap-2 text-muted">
                         <Coins n={sec?.coins ?? '—'} />
                         <Wins n={p.rounds_won} />
@@ -474,13 +510,31 @@ function ModeratorPanel() {
                         )}
                       </span>
                     </div>
-                    <div className="mt-1 flex items-center gap-2">
-                      <span className="text-xs text-muted">Combo:</span>
-                      {sec?.combination
-                        ? sec.combination.map((f, i) => <TokenIcon key={i} figure={f} size="sm" />)
-                        : <span className="text-xs text-muted">sin definir</span>}
-                    </div>
-                    <div className="text-xs text-muted">Condición: {sec?.condition.label ?? '—'}</div>
+                    {sec ? (
+                      <>
+                        <div className="mt-1 flex items-center gap-2">
+                          <span className="text-xs text-muted">Combo:</span>
+                          {sec.combination
+                            ? sec.combination.map((f, i) => <TokenIcon key={i} figure={f} size="sm" />)
+                            : <span className="text-xs text-muted">sin definir</span>}
+                        </div>
+                        <div className="text-xs text-muted">Condición: {sec.condition.label}</div>
+                      </>
+                    ) : (
+                      <div className="mt-1.5 rounded-lg border border-accent/30 bg-accent/10 p-2">
+                        <p className="text-xs text-ink">
+                          Entró con la partida ya empezada y no tiene cartas.
+                        </p>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => hostDealIn(p.id)}
+                          className="mt-1.5 w-full rounded-lg bg-accent px-3 py-1.5 text-xs font-bold text-accent-ink hover:bg-accent-dark disabled:opacity-50"
+                        >
+                          Repartirle 3 cartas y condición
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -583,18 +637,42 @@ function DrawDisplay() {
   );
 }
 
+/** Opciones de duración para la ronda de apuestas (segundos). */
+const BET_DURATIONS = [30, 45, 60, 90, 120];
+
 function HostRound() {
   const phase = useRoomStore((s) => s.game?.phase);
   const players = useRoomStore((s) => s.players);
   const lastResult = useRoomStore((s) => s.game?.last_result);
+  const endsAt = useRoomStore((s) => s.game?.betting_ends_at) ?? null;
+  const betSeconds = useRoomStore((s) => s.game?.bet_seconds) ?? 60;
+  const hostStartBetting = useRoomStore((s) => s.hostStartBetting);
   const hostResolve = useRoomStore((s) => s.hostResolve);
+  const hostCloseAndResolve = useRoomStore((s) => s.hostCloseAndResolve);
   const hostAdvance = useRoomStore((s) => s.hostAdvance);
   const busy = useRoomStore((s) => s.busy);
   const round = useRoomStore((s) => s.game?.round) ?? 0;
+  const [seconds, setSeconds] = useState(betSeconds);
 
   const connected = players.filter((p) => p.connected);
   const submitted = connected.filter((p) => p.bet_submitted).length;
+  const missing = connected.filter((p) => !p.bet_submitted);
   const allIn = connected.length > 0 && submitted === connected.length;
+
+  const closeNow = useCallback(() => {
+    void hostCloseAndResolve();
+  }, [hostCloseAndResolve]);
+
+  function closeManually() {
+    if (missing.length > 0) {
+      const names = missing.map((p) => p.name).join(', ');
+      const ok = window.confirm(
+        `Se cerrarán las apuestas ya.\n\nSin apostar: ${names}.\nCada uno pierde 1 moneda y queda fuera de esta ronda.`,
+      );
+      if (!ok) return;
+    }
+    closeNow();
+  }
 
   return (
     <div className="space-y-4">
@@ -603,7 +681,66 @@ function HostRound() {
         <DrawDisplay />
       </div>
 
-      {phase === 'BETTING' && (
+      {phase === 'DRAW' && (
+        <div className="rounded-xl border border-accent/30 bg-accent/5 p-4">
+          <h3 className="font-bold text-ink">Abrir la ronda de apuestas</h3>
+          <p className="mb-3 mt-1 text-sm text-muted">
+            Los jugadores ya ven las fichas y pueden ir preparando su jugada, pero no
+            podrán enviarla hasta que inicies el tiempo.
+          </p>
+          <div className="mb-3">
+            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">
+              Tiempo para apostar
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {BET_DURATIONS.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setSeconds(s)}
+                  className={`rounded-lg border-2 px-3 py-1.5 text-sm font-bold ${seconds === s ? 'border-accent-dark bg-accent text-accent-ink' : 'border-line bg-surface2 text-muted'}`}
+                >
+                  {s >= 60 ? `${s / 60} min${s % 60 ? ` ${s % 60}s` : ''}` : `${s}s`}
+                </button>
+              ))}
+            </div>
+          </div>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => hostStartBetting(seconds)}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-accent py-3 font-bold text-accent-ink hover:bg-accent-dark disabled:opacity-50"
+          >
+            <Icon name="play" size={18} />
+            Iniciar apuestas
+          </button>
+          <p className="mt-2 text-xs text-muted">
+            Al agotarse el tiempo, quien no haya apostado pierde 1 moneda, queda fuera de
+            la ronda y la partida sigue sin esperarlo.
+          </p>
+        </div>
+      )}
+
+      {phase === 'BETTING' && endsAt && (
+        <div className="space-y-2">
+          <BettingTimer
+            endsAt={endsAt}
+            totalSeconds={betSeconds}
+            onExpire={closeNow}
+            hint="Al llegar a cero se cierran las apuestas automáticamente y se resuelve la ronda."
+          />
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => hostStartBetting(30)}
+            className="w-full rounded-lg border border-line bg-surface2 py-2 text-sm font-semibold text-ink hover:border-accent disabled:opacity-50"
+          >
+            Dar 30 segundos más
+          </button>
+        </div>
+      )}
+
+      {(phase === 'BETTING' || phase === 'BETS_CLOSED') && (
         <div className="rounded-xl border border-line bg-surface p-4">
           <p className="mb-3 text-sm font-semibold text-ink">
             Apuestas recibidas: {submitted} / {connected.length}
@@ -619,14 +756,33 @@ function HostRound() {
               </span>
             ))}
           </div>
-          <button
-            type="button"
-            disabled={!allIn || busy}
-            onClick={hostResolve}
-            className="w-full rounded-lg bg-accent py-3 font-bold text-accent-ink hover:bg-accent-dark disabled:opacity-50"
-          >
-            Resolver ronda
-          </button>
+          {phase === 'BETS_CLOSED' ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={hostResolve}
+              className="w-full rounded-lg bg-accent py-3 font-bold text-accent-ink hover:bg-accent-dark disabled:opacity-50"
+            >
+              Resolver ronda
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={allIn ? hostResolve : closeManually}
+              className="w-full rounded-lg bg-accent py-3 font-bold text-accent-ink hover:bg-accent-dark disabled:opacity-50"
+            >
+              {allIn
+                ? 'Resolver ronda'
+                : `Cerrar apuestas y resolver (${missing.length} sin apostar)`}
+            </button>
+          )}
+          {phase === 'BETTING' && !allIn && (
+            <p className="mt-2 text-xs text-muted">
+              No hace falta esperar: puedes cerrar antes de tiempo. Quien no apostó pierde
+              1 moneda y se queda fuera de esta ronda.
+            </p>
+          )}
         </div>
       )}
 
@@ -660,6 +816,9 @@ function HostRound() {
 
 function PlayerRound() {
   const phase = useRoomStore((s) => s.game?.phase);
+  const mySecret = useRoomStore((s) => s.mySecret);
+  const endsAt = useRoomStore((s) => s.game?.betting_ends_at) ?? null;
+  const betSeconds = useRoomStore((s) => s.game?.bet_seconds) ?? 60;
   const me = useMe();
 
   if (phase === 'ROUND_END') {
@@ -671,9 +830,30 @@ function PlayerRound() {
     );
   }
 
+  // Se reincorporó (o el moderador le repartió) con la partida ya empezada:
+  // primero define su combinación y su carta pública.
+  if (mySecret && me && !me.setup_done) return <PlayerSetup />;
+
   if (me?.bet_submitted) {
     return (
-      <Waiting text="Apuesta enviada. Esperando a los demás jugadores.">
+      <div className="space-y-4">
+        {phase === 'BETTING' && endsAt && (
+          <BettingTimer
+            endsAt={endsAt}
+            totalSeconds={betSeconds}
+            hint="Ya apostaste. Puedes cambiar tu apuesta solo si el moderador reabre la ronda."
+          />
+        )}
+        <Waiting text="Apuesta enviada. Esperando a los demás jugadores.">
+          <DrawDisplay />
+        </Waiting>
+      </div>
+    );
+  }
+
+  if (phase === 'BETS_CLOSED') {
+    return (
+      <Waiting text="Apuestas cerradas. El moderador está resolviendo la ronda.">
         <DrawDisplay />
       </Waiting>
     );
@@ -682,25 +862,66 @@ function PlayerRound() {
   return <PlayerBet />;
 }
 
+/** Aviso de quienes no apostaron a tiempo en la ronda que acaba de cerrarse. */
+function PenaltyNotice() {
+  const penalized = useRoomStore((s) => s.game?.last_result?.penalized) ?? [];
+  const players = useRoomStore((s) => s.players);
+  const role = useRoomStore((s) => s.role);
+  const me = useMe();
+  if (penalized.length === 0) return null;
+
+  if (role === 'player') {
+    if (!me || !penalized.includes(me.id)) return null;
+    return (
+      <div className="mt-2 flex items-start gap-2 rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm">
+        <Icon name="alert" size={16} className="mt-0.5 shrink-0 text-danger" />
+        <span className="text-ink">
+          No enviaste tu apuesta a tiempo: <strong>−1 moneda</strong> y quedaste fuera de
+          esta ronda. En la siguiente, apura tu decisión.
+        </span>
+      </div>
+    );
+  }
+
+  const names = penalized
+    .map((id) => players.find((p) => p.id === id)?.name)
+    .filter(Boolean)
+    .join(', ');
+  return (
+    <div className="mt-2 flex items-start gap-2 rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm">
+      <Icon name="alert" size={16} className="mt-0.5 shrink-0 text-danger" />
+      <span className="text-ink">
+        Sin apostar a tiempo (−1 moneda y fuera de la ronda): <strong>{names}</strong>.
+      </span>
+    </div>
+  );
+}
+
 function ResultBanner() {
   const lastResult = useRoomStore((s) => s.game?.last_result);
   if (!lastResult) return null;
   if (lastResult.kind === 'void') {
     return (
-      <div className="rounded-lg border border-accent/20 bg-accent/10 p-3 text-sm">
-        <p className="font-bold text-ink">¡Empate! La ronda se repite con las mismas fichas.</p>
-        <p className="text-muted">
-          Totales — A: {lastResult.totals.A} · B: {lastResult.totals.B}.
-          {lastResult.reason === 'tombola-tie' ? ' Empate entre tómbolas.' : ' Empate entre apuestas máximas.'}
-        </p>
-      </div>
+      <>
+        <div className="rounded-lg border border-accent/20 bg-accent/10 p-3 text-sm">
+          <p className="font-bold text-ink">¡Empate! La ronda se repite con las mismas fichas.</p>
+          <p className="text-muted">
+            Totales — A: {lastResult.totals.A} · B: {lastResult.totals.B}.
+            {lastResult.reason === 'tombola-tie' ? ' Empate entre tómbolas.' : ' Empate entre apuestas máximas.'}
+          </p>
+        </div>
+        <PenaltyNotice />
+      </>
     );
   }
   return (
-    <div className="rounded-lg border border-success/20 bg-success/10 p-3 text-sm">
-      <p className="font-bold text-ink">Ganó la Tómbola {lastResult.tombola} (menor total).</p>
-      <p className="text-muted">Totales — A: {lastResult.totals.A} · B: {lastResult.totals.B}. Fichas colocadas en el tablero.</p>
-    </div>
+    <>
+      <div className="rounded-lg border border-success/20 bg-success/10 p-3 text-sm">
+        <p className="font-bold text-ink">Ganó la Tómbola {lastResult.tombola} (menor total).</p>
+        <p className="text-muted">Totales — A: {lastResult.totals.A} · B: {lastResult.totals.B}. Fichas colocadas en el tablero.</p>
+      </div>
+      <PenaltyNotice />
+    </>
   );
 }
 
@@ -733,8 +954,16 @@ function PlayerBet() {
   const mySecret = useRoomStore((s) => s.mySecret) as PlayerSecret | null;
   const submitBet = useRoomStore((s) => s.submitBet);
   const busy = useRoomStore((s) => s.busy);
+  const phase = useRoomStore((s) => s.game?.phase);
+  const endsAt = useRoomStore((s) => s.game?.betting_ends_at) ?? null;
+  const betSeconds = useRoomStore((s) => s.game?.bet_seconds) ?? 60;
+  const secondsLeft = useSecondsLeft(phase === 'BETTING' ? endsAt : null);
   const coins = mySecret?.coins ?? 0;
   const maxBet = Math.min(10, Math.max(1, coins));
+
+  // En DRAW se puede armar la jugada, pero el envío se habilita cuando el
+  // moderador abre las apuestas y se bloquea al agotarse el tiempo.
+  const bettingOpen = phase === 'BETTING' && (secondsLeft === null || secondsLeft > 0);
 
   const [draft, setDraft] = useState<Draft>({
     tombola: 'A',
@@ -790,6 +1019,26 @@ function PlayerBet() {
 
   return (
     <div className="space-y-4">
+      {phase === 'BETTING' && endsAt && (
+        <BettingTimer
+          endsAt={endsAt}
+          totalSeconds={betSeconds}
+          hint="Si el tiempo se acaba sin tu apuesta, pierdes 1 moneda y quedas fuera de esta ronda."
+        />
+      )}
+      {phase === 'DRAW' && (
+        <div className="rounded-xl border border-link/25 bg-link/10 p-3">
+          <p className="inline-flex items-center gap-2 text-sm font-bold text-ink">
+            <Icon name="hourglass" size={16} className="text-link" />
+            Prepara tu jugada
+          </p>
+          <p className="mt-1 text-xs text-muted">
+            Ya puedes elegir tómbola, monto y colocación. Podrás enviarla en cuanto el
+            moderador abra las apuestas.
+          </p>
+        </div>
+      )}
+
       <div className="rounded-xl border border-line bg-surface p-4">
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-lg font-bold text-ink">Tu apuesta</h2>
@@ -882,12 +1131,21 @@ function PlayerBet() {
       )}
       <button
         type="button"
-        disabled={!ready || validation?.ok === false || busy}
+        disabled={!ready || validation?.ok === false || busy || !bettingOpen}
         onClick={() => submitBet(draft.tombola, draft.amount, draft.order, draft.columns as number[])}
         className="w-full rounded-lg bg-accent py-3 font-bold text-accent-ink shadow hover:bg-accent-dark disabled:opacity-50"
       >
-        Confirmar apuesta
+        {phase === 'DRAW'
+          ? 'Esperando al moderador…'
+          : secondsLeft === 0
+            ? 'Se acabó el tiempo'
+            : 'Confirmar apuesta'}
       </button>
+      {phase === 'BETTING' && secondsLeft === 0 && (
+        <p className="text-center text-xs text-danger">
+          No alcanzaste a apostar: pierdes 1 moneda y quedas fuera de esta ronda.
+        </p>
+      )}
     </div>
   );
 }

@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import {
   clearPersistedRoom,
   createGame,
+  dealInPlayer,
+  heartbeat,
   joinGame,
   leaveGame,
   loadHostDetail,
@@ -9,6 +11,7 @@ import {
   persistRoom,
   loadMyPlayerSecret,
   loadSnapshot,
+  markConnected,
   startGame,
   subscribeRoom,
   type HostDetail,
@@ -17,7 +20,7 @@ import {
   type PlayerSecret,
 } from '../services/room';
 import * as game from '../services/game';
-import { ensureAnonSession } from '../services/supabase';
+import { ensureAnonSession, syncServerClock } from '../services/supabase';
 import type { Combination } from '../engine/types';
 
 export type RoomRole = 'host' | 'player';
@@ -49,8 +52,11 @@ type RoomActions = {
     columns: number[],
   ) => Promise<void>;
   hostStart: () => Promise<void>;
+  hostStartBetting: (seconds: number) => Promise<void>;
   hostResolve: () => Promise<void>;
+  hostCloseAndResolve: () => Promise<void>;
   hostAdvance: () => Promise<void>;
+  hostDealIn: (playerId: string) => Promise<void>;
   reconnect: () => Promise<void>;
   leave: () => Promise<void>;
   clearError: () => void;
@@ -65,6 +71,10 @@ function myPlayerId(state: RoomState): string | null {
 
 let unsub: (() => void) | null = null;
 let poll: ReturnType<typeof setInterval> | null = null;
+let beat: ReturnType<typeof setInterval> | null = null;
+
+/** Cada cuánto avisa el jugador que sigue vivo (ventana de presencia: 25 s). */
+const HEARTBEAT_MS = 10_000;
 
 /** Activa realtime + un refresco periódico de respaldo (auto-sana eventos perdidos). */
 function startSync(gameId: string, refresh: () => void) {
@@ -79,6 +89,26 @@ function stopSync() {
   if (poll) {
     clearInterval(poll);
     poll = null;
+  }
+  stopHeartbeat();
+}
+
+/**
+ * Latido del jugador: alimenta `player_presence` (tabla fuera de Realtime, para
+ * no despertar a los 30 teléfonos cada pocos segundos). Sirve para que el
+ * moderador vea quién está en línea y para liberar el lugar de quien se cayó.
+ */
+function startHeartbeat(playerId: string) {
+  stopHeartbeat();
+  const ping = () => void heartbeat(playerId).catch(() => {});
+  ping();
+  beat = setInterval(ping, HEARTBEAT_MS);
+}
+
+function stopHeartbeat() {
+  if (beat) {
+    clearInterval(beat);
+    beat = null;
   }
 }
 
@@ -108,6 +138,7 @@ export const useRoomStore = create<RoomState & RoomActions>((set, get) => ({
     try {
       const { gameId, code, hostUid } = await createGame();
       set({ role: 'host', gameId, code, myUid: hostUid });
+      void syncServerClock();
       await get().refresh();
       persistRoom({ gameId, role: 'host', code, myPlayerId: null });
       startSync(gameId, () => get().refresh());
@@ -123,11 +154,13 @@ export const useRoomStore = create<RoomState & RoomActions>((set, get) => ({
     try {
       const { gameId, playerId, uid } = await joinGame(code, name);
       set({ role: 'player', gameId, myPlayerId: playerId, myUid: uid });
+      void syncServerClock();
       await get().refresh();
       const resolvedCode = get().game?.code ?? code.toUpperCase();
       set({ code: resolvedCode });
       persistRoom({ gameId, role: 'player', code: resolvedCode, myPlayerId: playerId });
       startSync(gameId, () => get().refresh());
+      startHeartbeat(playerId);
     } catch (e) {
       set({ error: errMessage(e) });
     } finally {
@@ -222,11 +255,44 @@ export const useRoomStore = create<RoomState & RoomActions>((set, get) => ({
     }
   },
 
+  async hostStartBetting(seconds) {
+    const { gameId } = get();
+    if (!gameId) return;
+    set({ busy: true, error: null });
+    try {
+      await game.startBetting(gameId, seconds);
+      await get().refresh();
+    } catch (e) {
+      set({ error: errMessage(e) });
+    } finally {
+      set({ busy: false });
+    }
+  },
+
   async hostResolve() {
     const { gameId } = get();
     if (!gameId) return;
     set({ busy: true, error: null });
     try {
+      await game.resolveRound(gameId);
+      await get().refresh();
+    } catch (e) {
+      set({ error: errMessage(e) });
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  /**
+   * Cierra las apuestas (multa de 1 moneda a quien no apostó) y resuelve.
+   * Lo dispara el cronómetro al llegar a cero o el moderador manualmente.
+   */
+  async hostCloseAndResolve() {
+    const { gameId, busy } = get();
+    if (!gameId || busy) return;
+    set({ busy: true, error: null });
+    try {
+      await game.closeBetting(gameId);
       await game.resolveRound(gameId);
       await get().refresh();
     } catch (e) {
@@ -250,6 +316,21 @@ export const useRoomStore = create<RoomState & RoomActions>((set, get) => ({
     }
   },
 
+  /** Reparte cartas a un jugador que entró con la partida ya empezada. */
+  async hostDealIn(playerId) {
+    const { gameId } = get();
+    if (!gameId) return;
+    set({ busy: true, error: null });
+    try {
+      await dealInPlayer(gameId, playerId);
+      await get().refresh();
+    } catch (e) {
+      set({ error: errMessage(e) });
+    } finally {
+      set({ busy: false });
+    }
+  },
+
   async reconnect() {
     const saved = loadPersistedRoom();
     if (!saved) return;
@@ -257,23 +338,28 @@ export const useRoomStore = create<RoomState & RoomActions>((set, get) => ({
     try {
       const uid = await ensureAnonSession();
       const snap = await loadSnapshot(saved.gameId); // lanza si la sala ya no existe
-      const stillValid =
-        saved.role === 'host'
-          ? snap.game.host_uid === uid
-          : snap.players.some((p) => p.auth_uid === uid);
+      const me = snap.players.find((p) => p.auth_uid === uid);
+      const stillValid = saved.role === 'host' ? snap.game.host_uid === uid : Boolean(me);
       if (!stillValid) {
         clearPersistedRoom();
         return;
       }
+      const playerId = saved.role === 'player' ? me?.id ?? saved.myPlayerId : null;
       set({
         role: saved.role,
         gameId: saved.gameId,
         code: snap.game.code,
         myUid: uid,
-        myPlayerId: saved.myPlayerId,
+        myPlayerId: playerId,
       });
+      void syncServerClock();
       await get().refresh();
       startSync(saved.gameId, () => get().refresh());
+      if (saved.role === 'player' && playerId) {
+        // Vuelve a marcarse como conectado: pudo haberse caído la red.
+        await markConnected(playerId).catch(() => {});
+        startHeartbeat(playerId);
+      }
     } catch {
       // Sala borrada o inaccesible: olvida la persistencia y vuelve al inicio.
       clearPersistedRoom();

@@ -38,6 +38,7 @@ RLS separa lo **público** de lo **privado**:
 | `player_secrets` | **Privado**: mano, combinación, condición, monedas. Solo el dueño + host. |
 | `bets` | **Privado** por ronda: solo el jugador dueño + host. Se revelan tras resolver vía `round_history`. |
 | `round_history` | **Solo host**: apuestas reveladas, ganador y acomodo de cada ronda (la tabla en vivo del moderador). |
+| `player_presence` | Último latido de cada jugador. Lee cualquier participante; escribe cada quien el suyo. **Fuera de Realtime** a propósito. |
 
 Realtime publica solo tablas públicas (`games`, `players`). El moderador lee
 `bets` por consulta directa (RLS se lo permite) para ver las apuestas en vivo; el
@@ -51,12 +52,55 @@ sin filtrar montos.
    equipos).
 2. **Setup** — el sistema asigna a cada jugador una condición única y 3 cartas;
    cada jugador define su combinación (orden) y su carta pública.
-3. **Rondas (×5)** — el host extrae 4+4 fichas (visibles para todos). Cada
-   jugador elige tómbola, monto y acomodo (en secreto). Cuando todos enviaron, el
-   **host resuelve** con el motor y escribe el resultado. Empate ⇒ se repite con
-   las mismas fichas.
+3. **Rondas (×5)** — el host extrae 4+4 fichas (visibles para todos, fase `DRAW`).
+   El moderador pulsa **"Iniciar apuestas"** y arranca el cronómetro (fase
+   `BETTING`). Cada jugador elige tómbola, monto y acomodo (en secreto). Al llegar
+   a cero —o si el moderador cierra antes— quien no apostó pierde **1 moneda** y
+   queda fuera de la ronda; el **host resuelve** con el motor y escribe el
+   resultado. Empate ⇒ se repite con las mismas fichas (vuelve a `DRAW`).
 4. **Resultados** — puntaje por combinaciones × condición, ranking de jugadores,
    rondas ganadas y **tablero final**.
+
+### Fases (`games.phase`)
+
+`LOBBY → SETUP → DRAW ⇄ BETTING → BETS_CLOSED → ROUND_END → … → RESULTS`
+
+`DRAW` existe para separar "hay fichas en mesa" de "se puede apostar": los
+jugadores ya pueden **armar** su jugada, pero el envío se habilita solo con el
+cronómetro corriendo.
+
+## Cronómetro de apuestas
+
+- `start_betting(game_id, segundos)` fija `games.betting_ends_at` con el **reloj
+  del servidor**. Cada dispositivo mide su desfase una vez (`server_now()`,
+  `syncServerClock`) y lo aplica, así todos ven el mismo número.
+- `close_betting(game_id)` descuenta 1 moneda a cada jugador conectado sin
+  apuesta, guarda sus ids en `games.bet_penalized` y pasa a `BETS_CLOSED`. Es
+  **idempotente**: si ya estaba cerrada, no vuelve a cobrar.
+- El cierre lo dispara el **host** (autoritativo) al llegar a cero, o el botón
+  "Cerrar apuestas y resolver". `submit_bet` además rechaza en el servidor
+  cualquier apuesta posterior al cierre (2 s de gracia por latencia).
+- `resolveRound` no hace nada si la fase ya no es `BETTING`/`BETS_CLOSED`: evita
+  que el botón y el cronómetro resuelvan dos veces.
+
+## Reingreso y presencia
+
+Un problema de red no debe dejar a nadie fuera ni frenar a la clase:
+
+- `join_game` acepta partidas **en curso**. Reconoce el dispositivo por su
+  `auth.uid()`; si la sesión se perdió (otro navegador, datos borrados), deja
+  **reclamar el lugar por nombre** cuando su dueño lleva más de 25 s sin latir
+  (`presence_grace_seconds()`), para que nadie pueda quitarle el puesto a un
+  jugador activo.
+- Cada jugador late cada 10 s (`heartbeat`) sobre `player_presence`. Esa tabla
+  **no** está en la publicación de Realtime: 30 teléfonos latiendo no deben
+  despertar refrescos en toda la sala.
+- El panel del moderador muestra quién está en línea y permite **repartir cartas**
+  a quien entró con la partida ya empezada (`dealInPlayer`, condición secreta
+  libre + 3 cartas nuevas; no toca al resto).
+- `define_setup` también acepta a quien todavía no definió su combinación con la
+  partida ya empezada, y el moderador puede iniciar las rondas con 2 jugadores
+  listos aunque falten otros (juegan con su orden provisional).
 
 ## Esquema
 
@@ -64,3 +108,7 @@ Migración base: `supabase/migrations/20260624000000_init_multiplayer.sql`
 (+ fixes). Refactor a individual: `supabase/migrations/20260723000000_individual_no_teams.sql`
 (elimina `teams`/`team_secrets`, crea `player_secrets`, mueve la apuesta y el
 setup a RPCs por jugador: `submit_bet(p_player_id, …)`, `define_setup(p_player_id, …)`).
+Iteración 2: `supabase/migrations/20260730000000_betting_timer_and_rejoin.sql`
+(cronómetro `bet_seconds`/`betting_ends_at`/`bet_penalized`, RPCs `start_betting`,
+`close_betting`, `server_now`, `heartbeat`; tabla `player_presence`; `join_game`
+con reingreso).

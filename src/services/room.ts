@@ -1,10 +1,10 @@
-import { supabase, ensureAnonSession } from './supabase';
+import { supabase, ensureAnonSession, serverNow } from './supabase';
 import type { Json } from './database.types';
 import { emptyBoard } from '../engine/board';
 import { buildTombolas } from '../engine/tombolas';
 import { dealHandsIndependent, handToCombination } from '../engine/deck';
-import { assignUniqueConditions } from '../engine/conditions';
-import { makeRng } from '../engine/rng';
+import { assignUniqueConditions, buildConditionCatalog } from '../engine/conditions';
+import { makeRng, randInt } from '../engine/rng';
 import type {
   Board,
   Card,
@@ -19,6 +19,8 @@ export type RoundResultPublic = {
   tombola?: 'A' | 'B';
   totals: { A: number; B: number };
   reason?: string;
+  /** Jugadores que no apostaron a tiempo (−1 moneda, fuera de la ronda). */
+  penalized?: string[];
 };
 
 export type PlayerScore = {
@@ -49,6 +51,31 @@ function genCode(len = 5): string {
   return out;
 }
 
+/**
+ * Fases del juego (games.phase):
+ * LOBBY → SETUP → DRAW ⇄ BETTING → BETS_CLOSED → ROUND_END → … → RESULTS
+ * `DRAW` = fichas ya extraídas y visibles, apuestas todavía cerradas: el
+ * moderador decide cuándo arranca el cronómetro.
+ */
+export type GamePhase =
+  | 'LOBBY'
+  | 'SETUP'
+  | 'DRAW'
+  | 'BETTING'
+  | 'BETS_CLOSED'
+  | 'ROUND_END'
+  | 'RESULTS';
+
+export const PHASE_LABEL: Record<string, string> = {
+  LOBBY: 'Sala',
+  SETUP: 'Preparación',
+  DRAW: 'Fichas en mesa',
+  BETTING: 'Apuestas abiertas',
+  BETS_CLOSED: 'Apuestas cerradas',
+  ROUND_END: 'Fin de ronda',
+  RESULTS: 'Resultados',
+};
+
 export type LobbyGame = {
   id: string;
   code: string;
@@ -62,6 +89,12 @@ export type LobbyGame = {
   bet_totals: { A: number; B: number } | null;
   last_result: RoundResultPublic | null;
   final_scores: PlayerScore[] | null;
+  /** Duración elegida para la ronda de apuestas. */
+  bet_seconds: number;
+  /** Instante de cierre (ISO, reloj del servidor) o null si no hay cronómetro. */
+  betting_ends_at: string | null;
+  /** Quienes no apostaron a tiempo en la ronda en curso. */
+  bet_penalized: string[];
 };
 
 export type LobbyPlayer = {
@@ -128,11 +161,15 @@ export async function createGame(): Promise<{
   throw new Error('No se pudo generar un código de sala único. Intenta de nuevo.');
 }
 
-/** Une al dispositivo a una sala por código. */
+/**
+ * Une al dispositivo a una sala por código. Sirve también para reingresar a una
+ * partida en curso: el RPC reconoce el dispositivo por su uid y, si la sesión se
+ * perdió, deja reclamar el lugar del mismo nombre cuando ya no da señales de vida.
+ */
 export async function joinGame(
   code: string,
   name: string,
-): Promise<{ gameId: string; playerId: string; uid: string }> {
+): Promise<{ gameId: string; playerId: string; uid: string; rejoined: boolean }> {
   const uid = await ensureAnonSession();
   const { data, error } = await supabase.rpc('join_game', {
     p_code: code.trim().toUpperCase(),
@@ -140,10 +177,15 @@ export async function joinGame(
   });
   if (error) throw error;
   const row = (Array.isArray(data) ? data[0] : data) as
-    | { game_id: string; player_id: string }
+    | { game_id: string; player_id: string; rejoined?: boolean }
     | null;
   if (!row) throw new Error('No fue posible unirse a la sala.');
-  return { gameId: row.game_id, playerId: row.player_id, uid };
+  return {
+    gameId: row.game_id,
+    playerId: row.player_id,
+    uid,
+    rejoined: Boolean(row.rejoined),
+  };
 }
 
 /** Carga una foto completa del lobby (partida + jugadores). */
@@ -153,7 +195,7 @@ export async function loadSnapshot(gameId: string): Promise<RoomSnapshot> {
       supabase
         .from('games')
         .select(
-          'id, code, host_uid, status, mode, phase, round, board, current_draw, bet_totals, last_result, final_scores',
+          'id, code, host_uid, status, mode, phase, round, board, current_draw, bet_totals, last_result, final_scores, bet_seconds, betting_ends_at, bet_penalized',
         )
         .eq('id', gameId)
         .single(),
@@ -193,11 +235,13 @@ export type HostDetail = {
   currentBets: HostBet[];
   /** Historial de rondas ya resueltas. */
   history: RoundHistoryRow[];
+  /** Quién dio señales de vida hace poco (calculado al momento de la consulta). */
+  online: Record<string, boolean>;
 };
 
 /** Detalle completo solo para el moderador: secretos, tómbolas, apuestas e historial. */
 export async function loadHostDetail(gameId: string, round: number): Promise<HostDetail> {
-  const [{ data: secrets }, { data: priv }, { data: betsRows }, { data: historyRows }] =
+  const [{ data: secrets }, { data: priv }, { data: betsRows }, { data: historyRows }, { data: presence }] =
     await Promise.all([
       supabase
         .from('player_secrets')
@@ -218,6 +262,7 @@ export async function loadHostDetail(gameId: string, round: number): Promise<Hos
         .select('round, payload')
         .eq('game_id', gameId)
         .order('round'),
+      supabase.from('player_presence').select('player_id, last_seen_at').eq('game_id', gameId),
     ]);
 
   const currentBets: HostBet[] = (betsRows ?? []).map((b) => ({
@@ -250,13 +295,39 @@ export async function loadHostDetail(gameId: string, round: number): Promise<Hos
     };
   });
 
+  const now = serverNow();
+  const online: Record<string, boolean> = {};
+  for (const row of presence ?? []) {
+    const seen = new Date(row.last_seen_at as string).getTime();
+    online[row.player_id as string] = now - seen < PRESENCE_WINDOW_MS;
+  }
+
   return {
     secrets: (secrets ?? []) as unknown as PlayerSecret[],
     tombolaA: ((priv?.tombola_a ?? []) as unknown as Token[]),
     tombolaB: ((priv?.tombola_b ?? []) as unknown as Token[]),
     currentBets,
     history,
+    online,
   };
+}
+
+/**
+ * Margen para considerar a un jugador "en línea" según su último latido.
+ * Debe coincidir con `presence_grace_seconds()` en la base (25 s), que es lo que
+ * decide si su lugar puede reclamarse desde otro dispositivo.
+ */
+export const PRESENCE_WINDOW_MS = 25_000;
+
+/** Avisa que este jugador sigue vivo (para presencia y reingreso). */
+export async function heartbeat(playerId: string): Promise<void> {
+  await supabase.rpc('heartbeat', { p_player_id: playerId });
+}
+
+/** Marca al jugador como conectado otra vez (al volver tras una caída de red). */
+export async function markConnected(playerId: string): Promise<void> {
+  await supabase.from('players').update({ connected: true }).eq('id', playerId);
+  await heartbeat(playerId);
 }
 
 /** Carga el secreto del jugador (RLS lo permite solo al dueño/host). */
@@ -340,6 +411,51 @@ export async function startGame(gameId: string): Promise<void> {
     .update({ status: 'setup', phase: 'SETUP', round: 0 })
     .eq('id', gameId);
   if (error) throw error;
+}
+
+/**
+ * Reparte cartas y condición a un jugador que se incorporó con la partida ya
+ * empezada (o que se quedó fuera del reparto inicial por un problema de red).
+ * No toca al resto: usa una condición secreta que nadie más tenga.
+ */
+export async function dealInPlayer(gameId: string, playerId: string): Promise<void> {
+  const { data: existing } = await supabase
+    .from('player_secrets')
+    .select('player_id, condition')
+    .eq('game_id', gameId);
+
+  if ((existing ?? []).some((s) => s.player_id === playerId)) {
+    throw new Error('Ese jugador ya tiene cartas.');
+  }
+
+  const usedIds = new Set(
+    (existing ?? [])
+      .map((s) => (s.condition as unknown as Condition | null)?.id)
+      .filter(Boolean) as string[],
+  );
+  const free = buildConditionCatalog().filter((c) => !usedIds.has(c.id));
+  if (free.length === 0) {
+    throw new Error('No quedan condiciones secretas libres para repartir.');
+  }
+
+  const rng = makeRng(Date.now());
+  const hand = dealHandsIndependent(1, rng)[0];
+  const condition = free[randInt(rng, free.length)];
+
+  const { error } = await supabase.from('player_secrets').insert({
+    player_id: playerId,
+    game_id: gameId,
+    hand: hand as unknown as Json,
+    combination: handToCombination(hand) as unknown as Json, // provisional
+    condition: condition as unknown as Json,
+    coins: 30,
+  });
+  if (error) throw error;
+
+  await supabase
+    .from('players')
+    .update({ revealed_card_id: hand[0].id, setup_done: false, bet_submitted: false })
+    .eq('id', playerId);
 }
 
 /** Sale de la sala (marca desconectado). Mejor esfuerzo. */

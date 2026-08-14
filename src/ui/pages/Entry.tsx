@@ -76,7 +76,14 @@ export function Entry() {
   };
 
   if (stage === 'splash') return <Splash onDone={() => setStage('gate')} />;
-  if (stage === 'gate') return <Gate onPlayer={() => go('player-tutorial')} onAdmin={() => go('admin-login')} />;
+  if (stage === 'gate')
+    return (
+      <Gate
+        onPlayer={() => go('player-tutorial')}
+        onRejoin={() => go('player-join')}
+        onAdmin={() => go('admin-login')}
+      />
+    );
   if (stage === 'player-tutorial') return <Tutorial onFinish={() => go('player-join')} />;
   if (stage === 'player-join') return <PlayerJoin onBack={() => go('gate')} />;
   if (stage === 'admin-login')
@@ -116,7 +123,15 @@ function Splash({ onDone }: { onDone: () => void }) {
   );
 }
 
-function Gate({ onPlayer, onAdmin }: { onPlayer: () => void; onAdmin: () => void }) {
+function Gate({
+  onPlayer,
+  onRejoin,
+  onAdmin,
+}: {
+  onPlayer: () => void;
+  onRejoin: () => void;
+  onAdmin: () => void;
+}) {
   return (
     <Screen>
       <div className="mb-8 flex justify-center">
@@ -152,6 +167,13 @@ function Gate({ onPlayer, onAdmin }: { onPlayer: () => void; onAdmin: () => void
           </span>
         </button>
       </div>
+      <button
+        type="button"
+        onClick={onRejoin}
+        className="mx-auto mt-5 block text-sm text-link hover:underline"
+      >
+        Ya estaba jugando y se me salió — volver a entrar
+      </button>
     </Screen>
   );
 }
@@ -189,6 +211,13 @@ function PlayerJoin({ onBack }: { onBack: () => void }) {
             <h2 className="text-lg font-bold text-ink">Unirse a una sala</h2>
             <p className="text-sm text-muted">Ingresa el código que te dio el moderador.</p>
           </div>
+        </div>
+
+        <div className="mb-4 rounded-lg border border-link/25 bg-link/10 p-3 text-xs text-ink/85">
+          <strong className="text-link">¿Se te salió el juego?</strong> Entra con el mismo
+          código y <strong>exactamente el mismo nombre</strong> que usaste al inicio:
+          recuperas tus cartas, tus monedas y tu condición secreta, aunque la partida ya
+          vaya avanzada.
         </div>
 
         <ConfigBanner />

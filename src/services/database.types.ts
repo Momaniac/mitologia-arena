@@ -124,7 +124,10 @@ export type Database = {
       }
       games: {
         Row: {
+          bet_penalized: Json
+          bet_seconds: number
           bet_totals: Json | null
+          betting_ends_at: string | null
           board: Json
           code: string
           created_at: string
@@ -141,7 +144,10 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          bet_penalized?: Json
+          bet_seconds?: number
           bet_totals?: Json | null
+          betting_ends_at?: string | null
           board?: Json
           code: string
           created_at?: string
@@ -158,7 +164,10 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          bet_penalized?: Json
+          bet_seconds?: number
           bet_totals?: Json | null
+          betting_ends_at?: string | null
           board?: Json
           code?: string
           created_at?: string
@@ -268,6 +277,39 @@ export type Database = {
           },
         ]
       }
+      player_presence: {
+        Row: {
+          game_id: string
+          last_seen_at: string
+          player_id: string
+        }
+        Insert: {
+          game_id: string
+          last_seen_at?: string
+          player_id: string
+        }
+        Update: {
+          game_id?: string
+          last_seen_at?: string
+          player_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "player_presence_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "player_presence_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: true
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       round_history: {
         Row: {
           created_at: string
@@ -305,6 +347,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      close_betting: { Args: { p_game_id: string }; Returns: Json }
       define_setup: {
         Args: {
           p_combination: Json
@@ -313,11 +356,18 @@ export type Database = {
         }
         Returns: undefined
       }
+      heartbeat: { Args: { p_player_id: string }; Returns: undefined }
       is_game_host: { Args: { g: string }; Returns: boolean }
       is_game_participant: { Args: { g: string }; Returns: boolean }
       is_player_self: { Args: { p_player_id: string }; Returns: boolean }
       join_game: { Args: { p_code: string; p_name: string }; Returns: Json }
       my_player_id: { Args: { g: string }; Returns: string }
+      presence_grace_seconds: { Args: Record<string, never>; Returns: number }
+      server_now: { Args: Record<string, never>; Returns: string }
+      start_betting: {
+        Args: { p_game_id: string; p_seconds: number }
+        Returns: string
+      }
       submit_bet: {
         Args: {
           p_amount: number
