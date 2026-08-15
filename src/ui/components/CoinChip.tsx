@@ -14,7 +14,7 @@ import type { CSSProperties } from 'react';
  * Placeholder premium (disco CSS) hasta que el diseñador entregue las imágenes de
  * fichas — ver ASSETS.md: bastará con reemplazar el disco por <img>.
  */
-export type ChipTier = {
+type ChipTier = {
   value: number;
   color: string;
   ring: string;
@@ -22,7 +22,7 @@ export type ChipTier = {
   label: string;
 };
 
-export const CHIP_TIERS: ChipTier[] = [
+const CHIP_TIERS: ChipTier[] = [
   { value: 1, color: '#d9382c', ring: 'rgba(255,255,255,0.75)', textDark: false, label: 'Roja' },
   { value: 5, color: '#2b9c48', ring: 'rgba(255,255,255,0.75)', textDark: false, label: 'Verde' },
   { value: 10, color: '#2b73c4', ring: 'rgba(255,255,255,0.75)', textDark: false, label: 'Azul' },
@@ -31,7 +31,7 @@ export const CHIP_TIERS: ChipTier[] = [
 ];
 
 /** Ficha de mayor denominación que no excede el monto. */
-export function chipTierForAmount(amount: number): ChipTier {
+function chipTierForAmount(amount: number): ChipTier {
   let tier = CHIP_TIERS[0];
   for (const t of CHIP_TIERS) {
     if (amount >= t.value) tier = t;

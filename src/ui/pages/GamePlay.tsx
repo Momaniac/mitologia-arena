@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useRoomStore } from '../../state/roomStore';
 import { Board } from '../components/Board';
 import { TokenIcon } from '../components/TokenIcon';
@@ -943,6 +943,9 @@ type Draft = {
   columns: (number | null)[];
 };
 
+/** Referencia estable para cuando aún no hay tablero, y no un `[]` por render. */
+const EMPTY_BOARD: BoardType = [];
+
 function buildPreview(board: BoardType, figures: Figure[], columns: (number | null)[]) {
   const pv = board.map((row) => row.slice());
   const placements: { row: number; col: number; figure: Figure; index: number }[] = [];
@@ -959,7 +962,7 @@ function buildPreview(board: BoardType, figures: Figure[], columns: (number | nu
 
 function PlayerBet() {
   const draw = useRoomStore((s) => s.game?.current_draw);
-  const board = (useRoomStore((s) => s.game?.board) ?? []) as BoardType;
+  const board = (useRoomStore((s) => s.game?.board) ?? EMPTY_BOARD) as BoardType;
   const mySecret = useRoomStore((s) => s.mySecret) as PlayerSecret | null;
   const submitBet = useRoomStore((s) => s.submitBet);
   const busy = useRoomStore((s) => s.busy);
@@ -985,10 +988,11 @@ function PlayerBet() {
   const orderedTokens = draft.order.map((i) => tokens[i]).filter(Boolean);
   const figures = orderedTokens.map((t) => t.figure);
 
-  const { previewBoard, placements } = useMemo(
-    () => buildPreview(board, figures, draft.columns),
-    [board, figures, draft.columns],
-  );
+  // Sin useMemo a propósito: `figures` se reconstruye en cada render, así que la
+  // memoización manual nunca acertaba y además impedía que el React Compiler
+  // optimizara el componente. `buildPreview` copia un tablero pequeño y coloca
+  // 4 fichas: es barato.
+  const { previewBoard, placements } = buildPreview(board, figures, draft.columns);
   const nextIndex = draft.columns.findIndex((c) => c === null);
   const lastIndex = draft.columns.reduce<number>((last, col, index) => (col === null ? last : index), -1);
   const anyPlaced = lastIndex !== -1;
@@ -1177,7 +1181,7 @@ function Waiting({ text, children }: { text: string; children?: React.ReactNode 
 
 function ResultsView() {
   const scores = useRoomStore((s) => s.game?.final_scores) ?? [];
-  const board = (useRoomStore((s) => s.game?.board) ?? []) as BoardType;
+  const board = (useRoomStore((s) => s.game?.board) ?? EMPTY_BOARD) as BoardType;
   const players = useRoomStore((s) => s.players);
   const myUid = useRoomStore((s) => s.myUid);
   const leave = useRoomStore((s) => s.leave);

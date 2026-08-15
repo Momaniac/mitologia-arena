@@ -10,11 +10,9 @@ function App() {
   const [booting, setBooting] = useState(() => !!loadPersistedRoom());
 
   useEffect(() => {
-    if (loadPersistedRoom()) {
-      reconnect().finally(() => setBooting(false));
-    } else {
-      setBooting(false);
-    }
+    // Sin sala persistida no hay nada que reconectar: `booting` ya arrancó en false.
+    if (!loadPersistedRoom()) return;
+    reconnect().finally(() => setBooting(false));
   }, [reconnect]);
 
   if (booting) {
